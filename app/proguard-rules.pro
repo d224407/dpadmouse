@@ -1,8 +1,8 @@
-# Giữ số dòng để stack trace của bản release đọc được (dùng với build/outputs/mapping/release/mapping.txt)
+# Keep line numbers so release stack traces are readable (use with build/outputs/mapping/release/mapping.txt)
 -keepattributes SourceFile,LineNumberTable,Signature,*Annotation*
 -renamesourcefileattribute SourceFile
 
-# Bản release: KHÔNG có log nào. Xoá toàn bộ lời gọi DLog và android.util.Log.
+# Release build: NO logging. Strip every DLog and android.util.Log call.
 -assumenosideeffects class app.dpadmouse.DLog {
     public *** v(...);
     public *** d(...);

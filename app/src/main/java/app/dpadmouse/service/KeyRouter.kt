@@ -55,6 +55,14 @@ object KeyRouter {
             engine.setScroll(if (down) -1 else 0)
             return true
         }
+        if (code != KeyEvent.KEYCODE_UNKNOWN && code == prefs.scrollLeftKey) {
+            engine.setPan(if (down) -1 else 0)
+            return true
+        }
+        if (code != KeyEvent.KEYCODE_UNKNOWN && code == prefs.scrollRightKey) {
+            engine.setPan(if (down) 1 else 0)
+            return true
+        }
         return false
     }
 

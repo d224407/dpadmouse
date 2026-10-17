@@ -50,8 +50,18 @@ class Prefs(context: Context) {
         get() = sp.getInt("key_scroll_down", KeyEvent.KEYCODE_CHANNEL_DOWN)
         set(v) = sp.edit().putInt("key_scroll_down", v).apply()
 
+    // Horizontal scroll: unmapped by default.
+    var scrollLeftKey: Int
+        get() = sp.getInt("key_scroll_left", KeyEvent.KEYCODE_UNKNOWN)
+        set(v) = sp.edit().putInt("key_scroll_left", v).apply()
+
+    var scrollRightKey: Int
+        get() = sp.getInt("key_scroll_right", KeyEvent.KEYCODE_UNKNOWN)
+        set(v) = sp.edit().putInt("key_scroll_right", v).apply()
+
     fun resetKeys() {
         sp.edit().remove("key_toggle").remove("key_click").remove("key_right")
-            .remove("key_scroll_up").remove("key_scroll_down").apply()
+            .remove("key_scroll_up").remove("key_scroll_down")
+            .remove("key_scroll_left").remove("key_scroll_right").apply()
     }
 }

@@ -1,7 +1,7 @@
 import java.util.Properties
 
 plugins {
-    alias(libs.plugins.android.application) // AGP 9: Kotlin đã tích hợp sẵn, không cần plugin kotlin-android
+    alias(libs.plugins.android.application) // AGP 9: Kotlin is built in, no kotlin-android plugin needed
 }
 
 // --- Release signing: read from keystore.properties if present -------------------------------
@@ -52,8 +52,8 @@ android {
 
     buildTypes {
         // ------------------------------------------------------------------ DEBUG
-        // Mục tiêu: gỡ lỗi dễ nhất. Không minify, giữ nguyên tên lớp/dòng, bật log chi tiết,
-        // cài song song với bản release (đuôi .debug).
+        // Goal: easiest debugging. No minify, keep class/line names, verbose logging,
+        // installs side by side with the release build (.debug suffix).
         debug {
             isDebuggable = true
             isMinifyEnabled = false
@@ -74,8 +74,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // Có keystore.properties thì ký bằng key thật; không có thì ký tạm bằng debug key
-            // để vẫn cài thử được (KHÔNG dùng để phát hành).
+            // Sign with the real key if keystore.properties exists; otherwise sign with the debug key
+            // so it can still be installed for testing (NOT for distribution).
             signingConfig = if (hasReleaseKeystore) signingConfigs.getByName("release")
             else signingConfigs.getByName("debug")
         }
@@ -99,7 +99,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
 
-    // Debug only: phát hiện leak tự động (tự cài đặt, không cần code)
+    // Debug only: automatic leak detection (self-installing, no code needed)
     debugImplementation(libs.leakcanary)
 
     testImplementation(libs.junit)

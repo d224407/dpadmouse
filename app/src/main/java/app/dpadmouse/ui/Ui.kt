@@ -10,6 +10,7 @@ import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
@@ -18,7 +19,15 @@ import android.widget.TextView
 import androidx.core.content.ContextCompat
 import app.dpadmouse.R
 
-/** Material 3 style UI builder based on style.css (colors from res/values[-night]/colors.xml). */
+/**
+ * Android TV (10-foot) Material 3 style UI builder. Dark only.
+ *
+ * Design rules used throughout:
+ *  - Everything interactive is focusable and shows a clear focus state
+ *    (thick light outline + lighter fill + slight scale-up), because the
+ *    controller's D-pad is the primary input.
+ *  - Large text and touch/focus targets, readable from across a room.
+ */
 class Ui(val ctx: Context) {
 
     enum class Pos { SINGLE, TOP, MIDDLE, BOTTOM }
@@ -35,7 +44,7 @@ class Ui(val ctx: Context) {
         GradientDrawable().apply {
             setColor(fill)
             cornerRadii = radii
-            if (strokeColor != null) setStroke(dp(2), strokeColor)
+            if (strokeColor != null) setStroke(dp(3), strokeColor)
         }
 
     private fun radii(tl: Int, tr: Int, br: Int, bl: Int): FloatArray = floatArrayOf(
@@ -43,28 +52,49 @@ class Ui(val ctx: Context) {
         dp(br).toFloat(), dp(br).toFloat(), dp(bl).toFloat(), dp(bl).toFloat()
     )
 
-    /** Fully rounded (pill) background with a focus outline. */
-    fun pillBg(fillRes: Int, radiusDp: Int = 20): StateListDrawable =
-        stateBg(fillRes, radii(radiusDp, radiusDp, radiusDp, radiusDp))
+    private fun uniform(rDp: Int): FloatArray = radii(rDp, rDp, rDp, rDp)
 
-    /** Background with a primary outline when focused (TV controller navigation). */
-    fun stateBg(fillRes: Int, r: FloatArray): StateListDrawable = StateListDrawable().apply {
-        val primary = c(R.color.md_primary)
-        addState(intArrayOf(android.R.attr.state_focused), shape(c(fillRes), r, primary))
-        addState(intArrayOf(android.R.attr.state_pressed), shape(c(fillRes), r, primary))
-        addState(intArrayOf(), shape(c(fillRes), r))
-    }
+    /**
+     * Normal fill, and a lighter fill + bright outline when focused (D-pad)
+     * or pressed.
+     */
+    fun stateBg(fillRes: Int, r: FloatArray, focusFillRes: Int = R.color.md_surface_container_highest): StateListDrawable =
+        StateListDrawable().apply {
+            val ring = c(R.color.md_on_surface)
+            addState(intArrayOf(android.R.attr.state_focused), shape(c(focusFillRes), r, ring))
+            addState(intArrayOf(android.R.attr.state_pressed), shape(c(focusFillRes), r, ring))
+            addState(intArrayOf(), shape(c(fillRes), r))
+        }
+
+    /** Fully rounded (pill) background with a focus outline. */
+    fun pillBg(fillRes: Int, radiusDp: Int = 28): StateListDrawable =
+        stateBg(fillRes, uniform(radiusDp))
 
     fun rowBg(pos: Pos, active: Boolean = false): StateListDrawable {
-        val big = 24
-        val small = 4
+        val big = 28
+        val small = 6
         val r = when (pos) {
             Pos.SINGLE -> radii(big, big, big, big)
             Pos.TOP -> radii(big, big, small, small)
             Pos.MIDDLE -> radii(small, small, small, small)
             Pos.BOTTOM -> radii(small, small, big, big)
         }
-        return stateBg(if (active) R.color.md_primary_container else R.color.md_surface_container_highest, r)
+        return if (active) stateBg(R.color.md_primary_container, r, R.color.md_primary_container)
+        else stateBg(R.color.md_surface_container_high, r, R.color.md_surface_container_highest)
+    }
+
+    // ------------------------------------------------------------------ focus
+
+    /** Scales a view up slightly while it has focus, so the focused item stands out from across the room. */
+    private fun focusScale(scale: Float) = View.OnFocusChangeListener { v, hasFocus ->
+        val s = if (hasFocus) scale else 1f
+        v.animate().scaleX(s).scaleY(s).setDuration(120).start()
+    }
+
+    /** Makes [v] focusable with the standard TV focus animation. */
+    fun makeFocusable(v: View, scale: Float = 1.02f) {
+        v.isFocusable = true
+        v.onFocusChangeListener = focusScale(scale)
     }
 
     // ------------------------------------------------------------------ text
@@ -86,69 +116,81 @@ class Ui(val ctx: Context) {
         }
     }
 
-    /** .list-title: small, uppercase, primary color. */
-    fun listTitle(text: String): TextView = label(text.uppercase(), 13f, R.color.md_primary, bold = true).apply {
-        letterSpacing = 0.02f
-        setPadding(dp(4), dp(20), dp(4), dp(8))
+    /** Section title: small, uppercase, primary color. */
+    fun listTitle(text: String): TextView = label(text.uppercase(), 16f, R.color.md_primary, bold = true).apply {
+        letterSpacing = 0.04f
+        setPadding(dp(8), dp(28), dp(8), dp(10))
     }
 
     // ------------------------------------------------------------------ row
 
-    /** .tweak-row */
+    /**
+     * A settings row: name + optional description, with an optional trailing view.
+     * With [stacked] the trailing view goes below the text and spans the full
+     * width (used for the sensitivity slider); otherwise it sits on the right.
+     * A row is focusable only if it has an [onClick] (or [makeFocusable] is called).
+     */
     inner class Row(
         name: String,
         desc: String? = null,
         trailing: View? = null,
-        trailingExpands: Boolean = false,
+        stacked: Boolean = false,
         onClick: (() -> Unit)? = null
     ) : LinearLayout(ctx) {
-        val nameView = label(name, 15.5f, R.color.md_on_surface, bold = true)
-        val descView = label(desc ?: "", 13f, R.color.md_on_surface_variant).apply {
+        val nameView = label(name, 21f, R.color.md_on_surface, bold = true)
+        val descView = label(desc ?: "", 16f, R.color.md_on_surface_variant).apply {
             setLineSpacing(0f, 1.15f)
-            setPadding(0, dp(2), 0, 0)
+            setPadding(0, dp(3), 0, 0)
             visibility = if (desc.isNullOrEmpty()) View.GONE else View.VISIBLE
         }
         private var pos = Pos.SINGLE
         private var active = false
 
         init {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(18), dp(14), dp(18), dp(14))
-            minimumHeight = dp(56)
+            setPadding(dp(28), dp(18), dp(28), dp(18))
+            minimumHeight = dp(76)
             val info = LinearLayout(ctx).apply {
                 orientation = VERTICAL
                 addView(nameView)
                 addView(descView)
             }
-            // When trailingExpands is set (e.g. the sensitivity slider), the info column
-            // takes only the space it needs and the trailing view stretches to fill the rest,
-            // instead of the trailing view being squeezed down to its own wrap-content width.
-            if (trailingExpands) {
-                addView(info, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-            } else {
-                addView(info, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            }
-            if (trailing != null) {
-                val trailingParams = if (trailingExpands) {
-                    LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                } else {
-                    LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            if (stacked) {
+                orientation = VERTICAL
+                addView(info, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                if (trailing != null) {
+                    addView(trailing, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        topMargin = dp(14)
+                    })
                 }
-                trailingParams.marginStart = dp(14)
-                addView(trailing, trailingParams)
+            } else {
+                orientation = HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(info, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                if (trailing != null) {
+                    addView(trailing, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        marginStart = dp(20)
+                    })
+                }
             }
             if (onClick != null) {
-                isFocusable = true
+                makeFocusable(this)
                 isClickable = true
                 setOnClickListener { onClick() }
             }
             applyBg()
         }
 
+        /** Makes a non-clickable row focusable (e.g. the slider row, which handles Left/Right itself). */
+        fun enableFocus() = makeFocusable(this)
+
+        /** Long-press (hold OK on the controller) action. */
+        fun setOnLongPress(action: () -> Unit) {
+            isLongClickable = true
+            setOnLongClickListener { action(); true }
+        }
+
         fun setPos(p: Pos) { pos = p; applyBg() }
 
-        /** .master-row.active */
         fun setActive(a: Boolean) {
             active = a
             applyBg()
@@ -164,9 +206,10 @@ class Ui(val ctx: Context) {
         private fun applyBg() { background = rowBg(pos, active) }
     }
 
-    /** .list-container: rows chained together, large corners on the outside, small ones in the middle. */
+    /** Rows chained together: large corners on the outside, small ones in the middle. */
     fun group(vararg rows: Row): LinearLayout = LinearLayout(ctx).apply {
         orientation = LinearLayout.VERTICAL
+        clipChildren = false
         rows.forEachIndexed { i, r ->
             r.setPos(
                 when {
@@ -178,95 +221,88 @@ class Ui(val ctx: Context) {
             )
             addView(r, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { if (i > 0) topMargin = dp(2) })
+            ).apply { if (i > 0) topMargin = dp(3) })
         }
     }
 
-    /** Small label chip on the right of a row (shows the mapped key). */
-    fun chip(text: String): TextView = label(text, 12f, R.color.md_on_secondary_container, bold = true).apply {
-        setPadding(dp(12), dp(6), dp(12), dp(6))
-        val r = dp(14).toFloat()
-        background = shape(c(R.color.md_secondary_container), floatArrayOf(r, r, r, r, r, r, r, r))
+    /** Small label chip on the right of a row (shows the mapped key / current value). */
+    fun chip(text: String): TextView = label(text, 17f, R.color.md_on_secondary_container, bold = true).apply {
+        setPadding(dp(18), dp(8), dp(18), dp(8))
+        background = shape(c(R.color.md_secondary_container), uniform(18))
     }
 
     // ------------------------------------------------------------------ button
 
-    /** .btn / .btn.primary */
     fun pill(text: String, primary: Boolean = false, onClick: () -> Unit): TextView =
         TextView(ctx).apply {
             this.text = text
             gravity = Gravity.CENTER
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14.5f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             setTextColor(c(if (primary) R.color.md_on_primary else R.color.md_on_secondary_container))
-            minHeight = dp(48)
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            val r = dp(24).toFloat()
+            minHeight = dp(56)
+            setPadding(dp(28), dp(14), dp(28), dp(14))
             background = stateBg(
                 if (primary) R.color.md_primary else R.color.md_secondary_container,
-                floatArrayOf(r, r, r, r, r, r, r, r)
+                uniform(28),
+                if (primary) R.color.md_primary else R.color.md_secondary_container
             )
-            isFocusable = true
+            makeFocusable(this, 1.05f)
             isClickable = true
             setOnClickListener { onClick() }
         }
 
-    /** .action-row */
     fun actionRow(vararg buttons: View): LinearLayout = LinearLayout(ctx).apply {
         orientation = LinearLayout.HORIZONTAL
+        clipChildren = false
         buttons.forEachIndexed { i, b ->
             addView(b, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                if (i > 0) marginStart = dp(10)
+                if (i > 0) marginStart = dp(14)
             })
         }
-        setPadding(0, dp(12), 0, 0)
+        setPadding(0, dp(16), 0, 0)
     }
 
-    /** .icon-btn */
     fun iconButton(iconRes: Int, onClick: () -> Unit): ImageView = ImageView(ctx).apply {
         setImageResource(iconRes)
-        imageTintList = ColorStateList.valueOf(c(R.color.md_on_surface_variant))
+        imageTintList = ColorStateList.valueOf(c(R.color.md_on_surface))
         scaleType = ImageView.ScaleType.CENTER
-        val r = dp(20).toFloat()
-        background = stateBg(R.color.md_surface, floatArrayOf(r, r, r, r, r, r, r, r))
-        isFocusable = true
+        background = stateBg(R.color.md_surface_container_high, uniform(28))
+        makeFocusable(this, 1.08f)
         isClickable = true
         setOnClickListener { onClick() }
-        layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
+        layoutParams = LinearLayout.LayoutParams(dp(56), dp(56))
     }
 
-    /** .log-filter */
     fun filterChip(text: String, onClick: () -> Unit): TextView = TextView(ctx).apply {
         this.text = text
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         letterSpacing = 0.02f
-        setPadding(dp(14), dp(7), dp(14), dp(7))
-        isFocusable = true
+        setPadding(dp(20), dp(10), dp(20), dp(10))
+        makeFocusable(this, 1.05f)
         isClickable = true
         setOnClickListener { onClick() }
         setSelectedChip(false, false)
     }
 
     fun TextView.setSelectedChip(selected: Boolean, error: Boolean) {
-        val r = dp(20).toFloat()
-        val rr = floatArrayOf(r, r, r, r, r, r, r, r)
         val fill = when {
             selected && error -> R.color.md_error_container
             selected -> R.color.md_primary
-            else -> R.color.md_surface_container_highest
+            else -> R.color.md_surface_container_high
         }
         val text = when {
             selected && error -> R.color.md_on_error_container
             selected -> R.color.md_on_primary
             else -> R.color.md_on_surface_variant
         }
-        background = stateBg(fill, rr)
+        background = stateBg(fill, uniform(24), fill)
         setTextColor(c(text))
     }
 }
 
-/** .switch: 52x32, 2dp outline, small thumb when off - large when on. */
+/** Switch: 64x40, 2dp outline, small thumb when off - large when on. Display only (the row holds focus). */
 class M3Switch(private val ui: Ui) : View(ui.ctx) {
     var checked = false
         set(v) {
@@ -284,7 +320,7 @@ class M3Switch(private val ui: Ui) : View(ui.ctx) {
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        setMeasuredDimension(ui.dp(52), ui.dp(32))
+        setMeasuredDimension(ui.dp(64), ui.dp(40))
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -303,10 +339,77 @@ class M3Switch(private val ui: Ui) : View(ui.ctx) {
         rect.set(stroke / 2, stroke / 2, w - stroke / 2, h - stroke / 2)
         canvas.drawRoundRect(rect, h / 2, h / 2, paint)
 
-        val d = ui.dp(if (checked) 24 else 16).toFloat()
-        val left = if (checked) ui.dp(24).toFloat() else ui.dp(4).toFloat()
+        val d = ui.dp(if (checked) 28 else 20).toFloat()
+        val left = if (checked) w - d - ui.dp(6) else ui.dp(10).toFloat()
         paint.style = Paint.Style.FILL
         paint.color = ui.c(if (checked) R.color.md_on_primary else R.color.md_outline)
         canvas.drawCircle(left + d / 2, h / 2, d / 2, paint)
+    }
+}
+
+/**
+ * Horizontal slider that only draws a value. On TV the focused row adjusts it
+ * with Left/Right (see MainActivity); touch / mouse-cursor clicks on the bar
+ * also set it, via [onChange].
+ */
+class TvSlider(private val ui: Ui, private val min: Int, private val max: Int) : View(ui.ctx) {
+    var value = min
+        set(v) {
+            field = v.coerceIn(min, max)
+            invalidate()
+        }
+
+    var onChange: ((Int) -> Unit)? = null
+
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val rect = RectF()
+
+    init {
+        isFocusable = false
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), ui.dp(32))
+    }
+
+    private fun thumbX(): Float {
+        val pad = ui.dp(14).toFloat()
+        val frac = (value - min).toFloat() / (max - min)
+        return pad + frac * (width - 2 * pad)
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val h = height.toFloat()
+        val trackH = ui.dp(10).toFloat()
+        val top = (h - trackH) / 2
+        val x = thumbX()
+
+        paint.style = Paint.Style.FILL
+        paint.color = ui.c(R.color.md_outline_variant)
+        rect.set(0f, top, width.toFloat(), top + trackH)
+        canvas.drawRoundRect(rect, trackH / 2, trackH / 2, paint)
+
+        paint.color = ui.c(R.color.md_primary)
+        rect.set(0f, top, x, top + trackH)
+        canvas.drawRoundRect(rect, trackH / 2, trackH / 2, paint)
+
+        canvas.drawCircle(x, h / 2, ui.dp(14).toFloat(), paint)
+    }
+
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                parent?.requestDisallowInterceptTouchEvent(true)
+                val pad = ui.dp(14).toFloat()
+                val frac = ((e.x - pad) / (width - 2 * pad)).coerceIn(0f, 1f)
+                val v = min + Math.round(frac * (max - min))
+                if (v != value) {
+                    value = v
+                    onChange?.invoke(v)
+                }
+            }
+        }
+        return true
     }
 }

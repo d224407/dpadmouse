@@ -24,7 +24,8 @@ class CursorEngine(
     // Only accessed on the handler thread
     private var held = 0
     private var buttons = 0
-    private var scrollDir = 0
+    private var scrollDir = 0   // vertical: 1 = up, -1 = down
+    private var panDir = 0      // horizontal: 1 = right, -1 = left
     private var nextScrollAt = 0L
     private var holdStart = 0L
     private var remX = 0f
@@ -62,9 +63,19 @@ class CursorEngine(
         }
     }
 
+    /** dir: 1 = scroll right, -1 = scroll left, 0 = stop. */
+    fun setPan(dir: Int) = handler.post {
+        panDir = dir
+        if (dir != 0) {
+            nextScrollAt = 0L
+            startTicking()
+        }
+    }
+
     fun releaseAll() = handler.post {
         held = 0
         scrollDir = 0
+        panDir = 0
         if (buttons != 0) {
             buttons = 0
             report(0, 0, 0, 0)
@@ -83,6 +94,7 @@ class CursorEngine(
         handler.post {
             held = 0
             scrollDir = 0
+            panDir = 0
             ticking = false
             handler.removeCallbacks(tick)
         }
@@ -100,7 +112,7 @@ class CursorEngine(
 
     private val tick = object : Runnable {
         override fun run() {
-            if (failed || (held == 0 && scrollDir == 0)) {
+            if (failed || (held == 0 && scrollDir == 0 && panDir == 0)) {
                 ticking = false
                 return
             }
@@ -121,8 +133,8 @@ class CursorEngine(
                 sendMove(dx, dy)
             }
 
-            if (scrollDir != 0 && now >= nextScrollAt) {
-                report(buttons, 0, 0, scrollDir)
+            if ((scrollDir != 0 || panDir != 0) && now >= nextScrollAt) {
+                report(buttons, 0, 0, scrollDir, panDir)
                 nextScrollAt = now + SCROLL_INTERVAL_MS
             }
             handler.postDelayed(this, TICK_MS)
@@ -141,9 +153,9 @@ class CursorEngine(
         }
     }
 
-    private fun report(b: Int, dx: Int, dy: Int, wheel: Int) {
+    private fun report(b: Int, dx: Int, dy: Int, wheel: Int, pan: Int = 0) {
         if (failed) return
-        val json = HidMouse.reportJson(b, dx, dy, wheel)
+        val json = HidMouse.reportJson(b, dx, dy, wheel, pan)
         DLog.v("report $json")
         try {
             backend.writeHid(json)
@@ -151,6 +163,7 @@ class CursorEngine(
             failed = true
             held = 0
             scrollDir = 0
+            panDir = 0
             DLog.e("Failed to write HID report", e)
             onFailure(e)
         }

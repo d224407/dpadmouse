@@ -19,7 +19,11 @@
 
         <activity
             android:name=".MainActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|density|uiMode"
             android:exported="true">
+            <!-- On TV, connecting/disconnecting a remote or gamepad changes keyboard/navigation
+                 config; handling it here stops Android from restarting the activity (which would
+                 reset focus and any open dialog). Language changes still call recreate() explicitly. -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

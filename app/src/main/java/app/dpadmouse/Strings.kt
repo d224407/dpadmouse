@@ -6,12 +6,28 @@ package app.dpadmouse
  * property below reflects the current value of [lang].
  */
 object Strings {
-    /** "en" or "vi" */
+    class Language(val code: String, val name: String)
+
+    /** Selectable UI languages (each name is shown in its own language). */
+    val languages = listOf(
+        Language("en", "English"),
+        Language("vi", "Tiếng Việt")
+    )
+
+    /** Language code, one of [languages]. */
     var lang: String = "en"
 
-    private fun t(en: String, vi: String): String = if (lang == "en") en else vi
+    private fun t(en: String, vi: String): String = if (lang == "vi") vi else en
 
     val appTitle get() = "Dpad Mouse"
+
+    // --- Language selection
+    val languageRowName get() = t("Language", "Ngôn ngữ")
+    val languageButtonLabel get() = t("Language: ", "Ngôn ngữ: ") + (languages.firstOrNull { it.code == lang }?.name ?: "")
+
+    // --- Common buttons
+    val okBtn get() = t("OK", "OK")
+    val cancelBtn get() = t("Cancel", "Huỷ")
 
     // --- Virtual mouse section
     val sectionVirtualMouse get() = t("Virtual mouse", "Chuột ảo")
@@ -23,15 +39,17 @@ object Strings {
     val sectionLocalAdb get() = t("Local ADB", "ADB cục bộ")
     val statusRowName get() = t("Status", "Trạng thái")
     val addressRowName get() = t("Address", "Địa chỉ")
-    val addressRowDesc get() = t("Default 127.0.0.1", "Mặc định 127.0.0.1")
+    val addressRowDesc get() = t("Select to edit. Default 127.0.0.1", "Chọn để sửa. Mặc định 127.0.0.1")
     val portRowName get() = t("Port", "Cổng")
-    val portRowDesc get() = t("Enable with: adb tcpip 5555", "Bật bằng: adb tcpip 5555")
+    val portRowDesc get() = t("Select to edit. Enable with: adb tcpip 5555", "Chọn để sửa. Bật bằng: adb tcpip 5555")
+    val invalidPortToast get() = t("Port must be 1-65535", "Cổng phải từ 1-65535")
     val connectBtn get() = t("Connect", "Kết nối")
     val disconnectBtn get() = t("Disconnect", "Ngắt kết nối")
 
     // --- Control section
     val sectionControl get() = t("Control", "Điều khiển")
     val sensitivityRowName get() = t("Sensitivity", "Độ nhạy")
+    fun sensitivityDesc(v: Int) = t("$v / 100  -  press Left / Right to adjust", "$v / 100  -  bấm Trái / Phải để chỉnh")
     val mapKeysRowName get() = t("Map keys", "Gán phím")
 
     // --- Accessibility section
@@ -49,6 +67,8 @@ object Strings {
     val testClickRowDesc get() = t("Left button press and release", "Nút trái nhấn rồi nhả")
     val diagnoseRowName get() = t("Diagnose environment", "Chẩn đoán môi trường")
     val diagnoseRowDesc get() = t("uid, Android version, hid command", "uid, phiên bản Android, lệnh hid")
+    val openLogRowName get() = t("Open log", "Mở log")
+    val openLogRowDesc get() = t("View, copy or save the debug log", "Xem, sao chép hoặc lưu log gỡ lỗi")
 
     // --- Toasts / status
     val notConnectedToast get() = t("Not connected", "Chưa kết nối")
@@ -61,10 +81,10 @@ object Strings {
     val statusConnected get() = t("Connected, virtual mouse active", "Đã kết nối, chuột ảo đang hoạt động")
     fun errorSuffix(msg: String) = t("\nError: $msg", "\nLỗi: $msg")
     val a11yRunning get() = t("Running", "Đang chạy")
-    val a11yNotEnabled get() = t("Not enabled (needed to capture arrow keys)", "Chưa bật (cần để bắt phím mũi tên)")
+    val a11yNotEnabled get() = t("Not enabled (turned on automatically with mouse mode)", "Chưa bật (tự bật cùng chế độ chuột)")
     fun toggleDesc(keyName: String) = t("On/off key: $keyName", "Bật/tắt: $keyName")
     val storageGranted get() = t("Granted", "Đã cấp")
-    val storageNotGranted get() = t("Not granted, tap to request", "Chưa cấp, bấm để xin quyền")
+    val storageNotGranted get() = t("Not granted, select to request", "Chưa cấp, chọn để xin quyền")
     val diagnosePrefix get() = t("Diagnosis:\n", "Chẩn đoán:\n")
     val diagnoseErrorPrefix get() = t("ERROR: ", "LỖI: ")
 
@@ -80,32 +100,29 @@ object Strings {
     val slotScrollUpDesc get() = t("Hold to scroll continuously", "Giữ để cuộn liên tục")
     val slotScrollDownTitle get() = t("Scroll down", "Cuộn xuống")
     val slotScrollDownDesc get() = t("Hold to scroll continuously", "Giữ để cuộn liên tục")
+    val slotScrollLeftTitle get() = t("Scroll left", "Cuộn trái")
+    val slotScrollLeftDesc get() = t("Horizontal scroll. Unset by default", "Cuộn ngang. Mặc định để trống")
+    val slotScrollRightTitle get() = t("Scroll right", "Cuộn phải")
+    val slotScrollRightDesc get() = t("Horizontal scroll. Unset by default", "Cuộn ngang. Mặc định để trống")
     val keysPageNote get() = t(
-        "Tap an item, then press a key on the controller. Arrows always move the cursor while the mouse is on.",
-        "Bấm vào một mục rồi bấm phím trên điều khiển. Mũi tên luôn dùng để di chuyển khi chuột đang bật."
+        "Select an item, then press a key on the controller (Back cancels). Hold OK on an item to clear it. " +
+            "Arrows always move the cursor while the mouse is on.",
+        "Chọn một mục rồi bấm phím trên điều khiển (Back để huỷ). Giữ OK trên mục để xoá phím. " +
+            "Mũi tên luôn dùng để di chuyển khi chuột đang bật."
     )
     val resetDefaultsBtn get() = t("Restore defaults", "Khôi phục mặc định")
+    fun keyClearedToast(title: String) = t("$title: key cleared", "$title: đã xoá phím")
 
-    // --- Learn / confirm key dialogs
-    val learnMessage get() = t("Press the key you want to use on the controller.", "Bấm phím muốn dùng trên điều khiển.")
-    val dontUseKeyBtn get() = t("Don't use a key", "Không dùng phím này")
-    fun confirmKeyMessage(keyName: String) = t(
-        "Press X again on the controller to confirm \"$keyName\".",
-        "Bấm lại phím X trên điều khiển để xác nhận \"$keyName\"."
+    // --- Learn key dialog
+    val learnMessage get() = t(
+        "Press the key you want to use on the controller.\nPress Back to cancel.",
+        "Bấm phím muốn dùng trên điều khiển.\nBấm Back để huỷ."
     )
-    val cancelBtn get() = t("Cancel", "Huỷ")
+    val dontUseKeyBtn get() = t("Don't use a key", "Không dùng phím này")
     val notUsedKeyName get() = t("Not used", "Không dùng")
 
-    // --- Debug nav / log page
-    val navSettings get() = t("Settings", "Cài đặt")
-    val navLog get() = t("Log", "Log")
+    // --- Log page (debug)
     val logTitle get() = t("Log", "Log")
     val logSavedPrefix get() = t("Log saved: ", "Đã ghi log: ")
-    val logSaveErrorPrefix get() = t("Error", "Lỗi")
     val logCopiedToast get() = t("Log copied", "Đã sao chép log")
-
-    // --- Language toggle
-    val switchLanguageDesc get() = t("Switch language", "Đổi ngôn ngữ")
-    /** Label shown on the toggle button: the language it will switch TO. */
-    val languageToggleLabel get() = t("VI", "EN")
 }

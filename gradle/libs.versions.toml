@@ -1,6 +1,6 @@
 [versions]
 agp = "9.4.1"
-kotlin = "2.4.20"
+kotlin = "2.4.21"
 coreKtx = "1.19.1"
 appcompat = "1.8.0"
 leakcanary = "2.14"
@@ -14,5 +14,5 @@ junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
-# AGP 9 đã tích hợp Kotlin; plugin này chỉ để đưa đúng phiên bản KGP lên classpath (giống FuseHide).
+# AGP 9 has Kotlin built in; this plugin only puts the right KGP version on the classpath (same as FuseHide).
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }

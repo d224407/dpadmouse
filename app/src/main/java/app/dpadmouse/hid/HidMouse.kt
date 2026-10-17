@@ -2,7 +2,7 @@ package app.dpadmouse.hid
 
 /**
  * Virtual HID mouse, fed into Android's `hid -` command (JSON, one object per line).
- * 4-byte input report, same as the original app: [buttons, dx, dy, wheel].
+ * 5-byte input report: [buttons, dx, dy, wheel, pan] (pan = horizontal scroll).
  */
 object HidMouse {
     const val DEVICE_ID = 1
@@ -11,7 +11,7 @@ object HidMouse {
     const val BTN_RIGHT = 2
     const val BTN_MIDDLE = 4
 
-    /** Standard HID descriptor: 3 buttons + 5 padding bits, signed 8-bit relative X/Y/Wheel. */
+    /** HID descriptor: 3 buttons + 5 padding bits, signed 8-bit relative X/Y/Wheel, plus AC Pan (horizontal scroll). */
     private val DESCRIPTOR = intArrayOf(
         0x05, 0x01,       // Usage Page (Generic Desktop)
         0x09, 0x02,       // Usage (Mouse)
@@ -38,6 +38,10 @@ object HidMouse {
         0x75, 0x08,       //     Report Size (8)
         0x95, 0x03,       //     Report Count (3)
         0x81, 0x06,       //     Input (Data, Var, Rel)
+        0x05, 0x0C,       //     Usage Page (Consumer)
+        0x0A, 0x38, 0x02, //     Usage (AC Pan) -- horizontal scroll wheel
+        0x95, 0x01,       //     Report Count (1)
+        0x81, 0x06,       //     Input (Data, Var, Rel)  (still -127..127, 8 bits)
         0xC0,             //   End Collection
         0xC0              // End Collection
     )
@@ -46,8 +50,11 @@ object HidMouse {
         "{\"id\":$DEVICE_ID,\"command\":\"register\",\"name\":\"DpadMouse Virtual Mouse\"," +
             "\"bus\":\"usb\",\"descriptor\":[${DESCRIPTOR.joinToString(",")}]}"
 
-    /** dx, dy, wheel in -127..127; negative numbers are encoded as unsigned bytes (0..255). */
-    fun reportJson(buttons: Int, dx: Int, dy: Int, wheel: Int): String =
+    /**
+     * dx, dy, wheel, pan in -127..127; negative numbers are encoded as unsigned bytes (0..255).
+     * wheel: +1 = scroll up. pan: +1 = scroll right.
+     */
+    fun reportJson(buttons: Int, dx: Int, dy: Int, wheel: Int, pan: Int = 0): String =
         "{\"id\":$DEVICE_ID,\"command\":\"report\",\"report\":" +
-            "[${buttons and 0xFF},${dx and 0xFF},${dy and 0xFF},${wheel and 0xFF}]}"
+            "[${buttons and 0xFF},${dx and 0xFF},${dy and 0xFF},${wheel and 0xFF},${pan and 0xFF}]}"
 }

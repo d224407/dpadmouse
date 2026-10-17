@@ -12,8 +12,16 @@ class HidMouseTest {
     @Test
     fun negativeDeltasBecomeUnsignedBytes() {
         assertEquals(
-            "{\"id\":1,\"command\":\"report\",\"report\":[1,255,2,0]}",
+            "{\"id\":1,\"command\":\"report\",\"report\":[1,255,2,0,0]}",
             HidMouse.reportJson(1, -1, 2, 0)
+        )
+    }
+
+    @Test
+    fun reportCarriesWheelAndPan() {
+        assertEquals(
+            "{\"id\":1,\"command\":\"report\",\"report\":[0,0,0,1,255]}",
+            HidMouse.reportJson(0, 0, 0, 1, -1)
         )
     }
 
@@ -34,7 +42,7 @@ class HidMouseTest {
         val all = frame(1, "abc".toByteArray()) + frame(3, byteArrayOf(0))
         val got = mutableListOf<Pair<Int, String>>()
         val p = ShellV2Parser()
-        // Cắt giữa gói để thử ghép
+        // Split in the middle of a packet to test reassembly
         p.feed(all.copyOfRange(0, 6)) { id, d -> got += id to String(d) }
         assertTrue(got.isEmpty())
         p.feed(all.copyOfRange(6, all.size)) { id, d -> got += id to String(d) }
