@@ -155,12 +155,8 @@ class MainActivity : AppCompatActivity() {
     // ================================================================== main page
 
     private fun buildMainPage(): View {
-        val page = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            clipChildren = false
-        }
-
-        // --- header: title on the left, language selector in the top-right corner
+        // --- header: title on the left, language selector in the top-right corner.
+        // It is the first item of the scrolling content, so it scrolls away with the list.
         val titleCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         titleCol.addView(ui.label(Strings.appTitle, 38f, R.color.md_on_surface, bold = true).apply {
             setPadding(ui.dp(8), 0, ui.dp(8), 0)
@@ -179,15 +175,15 @@ class MainActivity : AppCompatActivity() {
             ui.pill(Strings.languageButtonLabel) { showLanguageDialog() },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         )
-        page.addView(header, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        // --- settings list (scrolls; the focused row is scrolled into view automatically)
+        // --- content (scrolls; the focused row is scrolled into view automatically)
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             clipChildren = false
             // Room for the focus scale-up so focused rows are never clipped at the sides.
             setPadding(ui.dp(16), 0, ui.dp(16), ui.dp(32))
         }
+        col.addView(header, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         // VIRTUAL MOUSE
         col.addView(ui.listTitle(Strings.sectionVirtualMouse))
@@ -258,7 +254,8 @@ class MainActivity : AppCompatActivity() {
 
         // ACCESSIBILITY (status only: turning mouse mode on enables the service automatically)
         col.addView(ui.listTitle(Strings.sectionAccessibility))
-        a11yRow = ui.Row(Strings.a11yServiceRowName, "")
+        // Selecting it retries enabling right away (recovery path now that there is no button).
+        a11yRow = ui.Row(Strings.a11yServiceRowName, "") { retryAccessibility() }
         col.addView(ui.group(a11yRow))
 
         // DEBUG (debug build only)
@@ -289,16 +286,21 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        page.addView(
-            ScrollView(this).apply {
-                clipChildren = false
-                clipToPadding = false
-                isSmoothScrollingEnabled = true
-                addView(col)
-            },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
-        )
-        return page
+        // Note: the ScrollView must keep clipChildren = true (default) so scrolled-out rows are
+        // cut at its edges instead of drawing over the screen margins.
+        return ScrollView(this).apply {
+            clipToPadding = false
+            isSmoothScrollingEnabled = true
+            addView(col)
+        }
+    }
+
+    private fun retryAccessibility() {
+        if (MouseHub.serviceConnected) return
+        toast(Strings.a11yEnablingToast)
+        MouseHub.enableAccessibilityService { r ->
+            r.onFailure { toast("${Strings.diagnoseErrorPrefix}${it.message}") }
+        }
     }
 
     private fun setSensitivity(v: Int) {
@@ -464,7 +466,6 @@ class MainActivity : AppCompatActivity() {
         }
         col.addView(
             ScrollView(this).apply {
-                clipChildren = false
                 clipToPadding = false
                 isSmoothScrollingEnabled = true
                 addView(content)
@@ -561,7 +562,6 @@ class MainActivity : AppCompatActivity() {
         }
         col.addView(HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
-            clipChildren = false
             clipToPadding = false
             addView(chips)
         })

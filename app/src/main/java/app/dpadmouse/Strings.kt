@@ -81,7 +81,11 @@ object Strings {
     val statusConnected get() = t("Connected, virtual mouse active", "Đã kết nối, chuột ảo đang hoạt động")
     fun errorSuffix(msg: String) = t("\nError: $msg", "\nLỗi: $msg")
     val a11yRunning get() = t("Running", "Đang chạy")
-    val a11yNotEnabled get() = t("Not enabled (turned on automatically with mouse mode)", "Chưa bật (tự bật cùng chế độ chuột)")
+    val a11yNotEnabled get() = t(
+        "Not running. Turned on automatically with mouse mode; select to retry now",
+        "Chưa chạy. Tự bật cùng chế độ chuột; chọn để thử lại ngay"
+    )
+    val a11yEnablingToast get() = t("Enabling accessibility service…", "Đang bật dịch vụ trợ năng…")
     fun toggleDesc(keyName: String) = t("On/off key: $keyName", "Bật/tắt: $keyName")
     val storageGranted get() = t("Granted", "Đã cấp")
     val storageNotGranted get() = t("Not granted, select to request", "Chưa cấp, chọn để xin quyền")

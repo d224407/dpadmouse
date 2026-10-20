@@ -85,15 +85,21 @@ class Ui(val ctx: Context) {
 
     // ------------------------------------------------------------------ focus
 
-    /** Scales a view up slightly while it has focus, so the focused item stands out from across the room. */
+    /**
+     * Scales a view up slightly while it has focus, so the focused item stands out from across the room.
+     * It is also raised in Z so its enlarged edges are drawn ON TOP of neighbouring rows/buttons
+     * (siblings are drawn in order, so without this the next sibling would cover the grown edge).
+     */
     private fun focusScale(scale: Float) = View.OnFocusChangeListener { v, hasFocus ->
         val s = if (hasFocus) scale else 1f
-        v.animate().scaleX(s).scaleY(s).setDuration(120).start()
+        v.animate().scaleX(s).scaleY(s).translationZ(if (hasFocus) dp(8).toFloat() else 0f)
+            .setDuration(120).start()
     }
 
     /** Makes [v] focusable with the standard TV focus animation. */
     fun makeFocusable(v: View, scale: Float = 1.02f) {
         v.isFocusable = true
+        v.outlineProvider = null // Z is only used for draw order; no drop shadow
         v.onFocusChangeListener = focusScale(scale)
     }
 

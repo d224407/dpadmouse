@@ -101,6 +101,7 @@ object MouseHub {
     }
 
     fun disconnect() {
+        prefs.wasMouseOn = false // an explicit disconnect also cancels auto-resume on the next launch
         io.execute {
             teardown()
             state = State.DISCONNECTED
@@ -170,8 +171,11 @@ object MouseHub {
     }
 
     fun detachService() {
+        // Only note that keys are no longer captured. Do NOT turn mouse mode off here: the service
+        // also unbinds briefly while enableAccessibilityService() re-binds it, and that must not
+        // cancel the user's choice (or the saved "resume on launch" state).
         serviceConnected = false
-        setMouseMode(false)
+        engine?.releaseAll()
         notifyChanged()
     }
 
@@ -198,15 +202,25 @@ object MouseHub {
         }
     }
 
-    /** Adds the app's accessibility service to the enabled list via the `settings` command (needs shell permission). */
+    /**
+     * Enables the app's accessibility service via the `settings` command (needs shell permission).
+     *
+     * Android only (re)binds a service when the setting value actually CHANGES. If our entry is
+     * already in the list but the service isn't running (stale binding after an app update, a crash
+     * or a force-stop), re-writing the same list does nothing. So the list is first written without
+     * us, then with us, which always forces a fresh bind.
+     */
     fun enableAccessibilityService(callback: (Result<String>) -> Unit) {
-        val me = ComponentName(appContext, MouseAccessibilityService::class.java).flattenToString()
+        val meCn = ComponentName(appContext, MouseAccessibilityService::class.java)
         val current = Settings.Secure.getString(
             appContext.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
         ).orEmpty()
-        val list = current.split(':').filter { it.isNotBlank() }.toMutableList()
-        if (!list.contains(me)) list.add(me)
-        val cmd = "settings put secure enabled_accessibility_services '${list.joinToString(":")}' && " +
+        // Compare as components so both the long and short ("pkg/.Cls") spellings of our entry are dropped.
+        val others = current.split(':').filter { it.isNotBlank() && ComponentName.unflattenFromString(it) != meCn }
+        val withoutMe = others.joinToString(":")
+        val withMe = (others + meCn.flattenToString()).joinToString(":")
+        val cmd = "settings put secure enabled_accessibility_services '$withoutMe' && sleep 0.5 && " +
+            "settings put secure enabled_accessibility_services '$withMe' && " +
             "settings put secure accessibility_enabled 1 && echo OK"
         DLog.i("Enabling accessibility: $cmd")
         execOnce(cmd, callback)
