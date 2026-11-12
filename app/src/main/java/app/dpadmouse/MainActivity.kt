@@ -313,6 +313,11 @@ class MainActivity : AppCompatActivity() {
     private fun onMasterClick() {
         when {
             MouseHub.state == MouseHub.State.CONNECTING -> Unit
+            // ON but the accessibility service is dead: repair it instead of switching OFF.
+            MouseHub.mouseModeOn && !MouseHub.serviceConnected -> {
+                toast(Strings.a11yEnablingToast)
+                MouseHub.setMouseMode(true)
+            }
             MouseHub.mouseModeOn -> MouseHub.setMouseMode(false)
             MouseHub.state == MouseHub.State.CONNECTED -> MouseHub.setMouseMode(true)
             else -> MouseHub.toggleFromService() // connect then turn on

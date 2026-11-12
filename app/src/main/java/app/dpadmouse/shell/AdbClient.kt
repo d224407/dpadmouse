@@ -56,6 +56,16 @@ class AdbClient(
 
     @Throws(IOException::class)
     fun connect() {
+        try {
+            doConnect()
+        } catch (t: Throwable) {
+            closed = true
+            runCatching { socket?.close() } // don't leak the socket when the handshake fails
+            throw t
+        }
+    }
+
+    private fun doConnect() {
         val s = Socket()
         s.tcpNoDelay = true
         s.connect(InetSocketAddress(host, port), 5_000)

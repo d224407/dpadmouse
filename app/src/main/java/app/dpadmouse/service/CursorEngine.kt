@@ -56,18 +56,22 @@ class CursorEngine(
 
     /** dir: 1 = scroll up, -1 = scroll down, 0 = stop. */
     fun setScroll(dir: Int) = handler.post {
+        val was = scrollDir
         scrollDir = dir
         if (dir != 0) {
-            nextScrollAt = 0L
+            // Only restart the throttle on a new press: key auto-repeat calls this again and again,
+            // and resetting here made scrolling run at the repeat rate instead of SCROLL_INTERVAL_MS.
+            if (was != dir) nextScrollAt = 0L
             startTicking()
         }
     }
 
     /** dir: 1 = scroll right, -1 = scroll left, 0 = stop. */
     fun setPan(dir: Int) = handler.post {
+        val was = panDir
         panDir = dir
         if (dir != 0) {
-            nextScrollAt = 0L
+            if (was != dir) nextScrollAt = 0L
             startTicking()
         }
     }

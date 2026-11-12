@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
+import app.dpadmouse.BuildConfig
 import app.dpadmouse.DLog
 import app.dpadmouse.MouseHub
 
@@ -26,6 +27,11 @@ class MouseAccessibilityService : AccessibilityService() {
         MouseHub.engine?.releaseAll()
     }
 
+    override fun onDestroy() {
+        MouseHub.detachService()
+        super.onDestroy()
+    }
+
     override fun onUnbind(intent: Intent?): Boolean {
         DLog.i("Accessibility service unbound")
         MouseHub.detachService()
@@ -41,10 +47,12 @@ class MouseAccessibilityService : AccessibilityService() {
         val down = event.action == KeyEvent.ACTION_DOWN
         val first = down && event.repeatCount == 0
 
-        DLog.d(
-            "key ${KeyEvent.keyCodeToString(code)} ${if (down) "DOWN" else "UP"} " +
-                "rep=${event.repeatCount} dev=${event.deviceId} mouse=${MouseHub.mouseModeOn}"
-        )
+        if (BuildConfig.DEBUG) {
+            DLog.d(
+                "key ${KeyEvent.keyCodeToString(code)} ${if (down) "DOWN" else "UP"} " +
+                    "rep=${event.repeatCount} dev=${event.deviceId} mouse=${MouseHub.mouseModeOn}"
+            )
+        }
 
         return KeyRouter.handle(prefs, code, down, first)
     }
