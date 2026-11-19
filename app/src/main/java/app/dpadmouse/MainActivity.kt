@@ -1,5 +1,9 @@
 package app.dpadmouse
 
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -68,6 +72,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sensSlider: TvSlider
     private lateinit var keysRow: Ui.Row
     private lateinit var grabSwitch: M3Switch
+    private lateinit var grabRow: Ui.Row
     private lateinit var whitelistRow: Ui.Row
     private lateinit var updateGroup: View
     private lateinit var updateRow: Ui.Row
@@ -86,6 +91,14 @@ class MainActivity : AppCompatActivity() {
     private class Slot(val title: String, val desc: String, val prop: KMutableProperty0<Int>)
 
     private val stateListener: () -> Unit = { render() }
+
+    // The accessibility status is verified against the system; refresh it when the setting changes
+    // (a service can be turned off without any callback reaching the app).
+    private val a11ySettingObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) {
+            window?.decorView?.postDelayed({ render() }, 400)
+        }
+    }
     private val backCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() = showPage(Page.MAIN)
     }
@@ -122,6 +135,9 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         MouseHub.addListener(stateListener)
+        contentResolver.registerContentObserver(
+            Settings.Secure.getUriFor(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES), false, a11ySettingObserver
+        )
         if (DebugTools.ENABLED) DLog.listener = { runOnUiThread { renderLog() } }
         render()
         if (DebugTools.ENABLED) renderLog()
@@ -131,6 +147,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         MouseHub.removeListener(stateListener)
+        contentResolver.unregisterContentObserver(a11ySettingObserver)
         if (DebugTools.ENABLED) DLog.listener = null
         super.onStop()
     }
@@ -268,15 +285,16 @@ class MainActivity : AppCompatActivity() {
         }
         keysRow = ui.Row(Strings.mapKeysRowName, "", chevron) { openPage(Page.KEYS, keysRow) }
         grabSwitch = M3Switch(ui)
-        val grabRow = ui.Row(Strings.grabOnlyRowName, "", grabSwitch) { MouseHub.setGrabOnly(!prefs.grabOnly) }
+        grabRow = ui.Row(Strings.grabOnlyRowName, "", grabSwitch) { MouseHub.setGrabOnly(!prefs.grabOnly) }
         whitelistRow = ui.Row(Strings.whitelistRowName, "") { showWhitelistDialog() }
-        col.addView(ui.group(sensRow, keysRow, grabRow, whitelistRow))
+        col.addView(ui.group(sensRow, keysRow, whitelistRow))
 
-        // ACCESSIBILITY (status only: turning mouse mode on enables the service automatically)
-        col.addView(ui.listTitle(Strings.sectionAccessibility))
+        // DIAGNOSTIC: the two key-capture methods. EVIOCGRAB is chosen here; the accessibility service is
+        // enabled automatically with mouse mode when EVIOCGRAB is off.
+        col.addView(ui.listTitle(Strings.sectionDiagnostic))
         // Selecting it retries enabling right away (recovery path now that there is no button).
         a11yRow = ui.Row(Strings.a11yServiceRowName, "") { retryAccessibility() }
-        col.addView(ui.group(a11yRow))
+        col.addView(ui.group(grabRow, a11yRow))
 
         // DEBUG (debug build only)
         if (DebugTools.ENABLED) {
@@ -372,7 +390,20 @@ class MainActivity : AppCompatActivity() {
             MouseHub.State.CONNECTED -> Strings.statusConnected
         }
         statusRow.setDesc(shell + (MouseHub.lastError?.let { Strings.errorSuffix(it) } ?: ""))
-        a11yRow.setDesc(if (MouseHub.keysReady) Strings.a11yRunning else if (prefs.grabOnly) Strings.grabNotRunning else Strings.a11yNotEnabled)
+        grabRow.setDesc(
+            when {
+                !prefs.grabOnly -> Strings.grabOff
+                MouseHub.grab != null -> Strings.grabRunning
+                else -> Strings.grabNotRunning
+            }
+        )
+        a11yRow.setDesc(
+            when {
+                prefs.grabOnly -> Strings.a11yNotUsed
+                MouseHub.serviceActive() -> Strings.a11yRunning
+                else -> Strings.a11yNotEnabled
+            }
+        )
         grabSwitch.checked = prefs.grabOnly
         val rel = Updater.pending(prefs)
         updateGroup.visibility = if (rel != null) View.VISIBLE else View.GONE

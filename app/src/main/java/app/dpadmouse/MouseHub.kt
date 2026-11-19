@@ -1,6 +1,7 @@
 package app.dpadmouse
 
 import android.Manifest
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
@@ -9,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
+import android.view.accessibility.AccessibilityManager
 import android.widget.Toast
 import app.dpadmouse.hid.HidMouse
 import app.dpadmouse.service.CursorEngine
@@ -73,7 +75,7 @@ object MouseHub {
         private set
 
     /** Whether keys are being captured: the EVIOCGRAB helper or the accessibility service, per the mode. */
-    val keysReady: Boolean get() = if (prefs.grabOnly) grab != null else serviceConnected
+    val keysReady: Boolean get() = if (prefs.grabOnly) grab != null else serviceActive()
 
     @Volatile private var backend: ShellBackend? = null
     @Volatile private var enableAfterConnect = false
@@ -95,7 +97,7 @@ object MouseHub {
         }
     }
     private val recoverRunnable = Runnable {
-        if (!mouseModeOn || prefs.grabOnly || serviceConnected || a11yBusy) return@Runnable
+        if (!mouseModeOn || prefs.grabOnly || serviceActive() || a11yBusy) return@Runnable
         // Our entry is still listed -> the system is (re)binding it, give it time.
         if (isListed()) return@Runnable
         val now = SystemClock.uptimeMillis()
@@ -332,7 +334,7 @@ object MouseHub {
     }
 
     private fun ensureService() {
-        if (prefs.grabOnly || serviceConnected) return
+        if (prefs.grabOnly || serviceActive()) return
         enableAccessibilityService { r ->
             r.onFailure {
                 DLog.w("Enable accessibility failed: ${it.message}")
@@ -444,6 +446,26 @@ object MouseHub {
         if (!out.contains("OK")) throw IOException(out.ifBlank { "settings put failed" })
     }
 
+    /** Whether the system itself reports our service as bound (not just our own flag). */
+    private fun isBoundBySystem(): Boolean {
+        val am = appContext.getSystemService(AccessibilityManager::class.java) ?: return serviceConnected
+        return am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK).any {
+            val si = it.resolveInfo?.serviceInfo
+            si != null && si.packageName == myComponent.packageName && si.name == myComponent.className
+        }
+    }
+
+    /**
+     * True only while the service is really running. The connected flag alone can go stale (service
+     * disabled without an unbind callback), so it is checked against the system's bound-service list.
+     */
+    fun serviceActive(): Boolean {
+        if (!serviceConnected) return false
+        if (isBoundBySystem()) return true
+        svcLock.withLock { serviceConnected = false }
+        return false
+    }
+
     private fun awaitService(timeoutMs: Long): Boolean {
         var nanos = TimeUnit.MILLISECONDS.toNanos(timeoutMs)
         svcLock.lock()
@@ -468,7 +490,7 @@ object MouseHub {
      * one run (before, rapid taps interleaved remove/add cycles and unbound the service just bound).
      */
     fun enableAccessibilityService(callback: (Result<String>) -> Unit = {}) {
-        if (serviceConnected) {
+        if (serviceActive()) {
             main.post { callback(Result.success("running")) }
             return
         }
@@ -490,12 +512,14 @@ object MouseHub {
     private fun doEnableAccessibility(): String {
         val me = myComponent.flattenToString()
         for (attempt in 0 until A11Y_ATTEMPTS) {
-            if (serviceConnected) return "running"
+            if (serviceActive()) return "running"
             val current = enabledServices()
             val others = current.filter { ComponentName.unflattenFromString(it) != myComponent }
             val listed = others.size != current.size
             if (listed || attempt > 0) {
                 writeEnabledServices(others, enable = false)
+                // Whatever the old binding did, only a fresh onServiceConnected may count from here.
+                svcLock.withLock { serviceConnected = false }
                 Thread.sleep(A11Y_REBIND_GAP_MS * (attempt + 1))
             }
             writeEnabledServices(others + me, enable = true)
