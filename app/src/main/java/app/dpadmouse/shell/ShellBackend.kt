@@ -30,4 +30,13 @@ interface ShellBackend : Closeable {
     fun writeHid(data: String)
 
     fun stopHid()
+
+    /** Starts a long-lived native helper; each stdout line goes to [onLine] (reader thread: never write from it). */
+    @Throws(IOException::class)
+    fun startEvGrab(command: String, onLine: (String) -> Unit)
+
+    @Throws(IOException::class)
+    fun writeEvGrab(line: String)
+
+    fun stopEvGrab()
 }

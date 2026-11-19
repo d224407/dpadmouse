@@ -208,7 +208,7 @@ class AdbClient(
             when (id) {
                 1, 2 -> {
                     val text = String(payload, Charsets.UTF_8)
-                    st.output.append(text)
+                    if (st.output.length < 8_192) st.output.append(text) // bounded: long-lived streams
                     st.onOutput?.invoke(text)
                 }
                 3 -> {

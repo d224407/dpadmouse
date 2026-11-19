@@ -66,6 +66,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sensRow: Ui.Row
     private lateinit var sensSlider: TvSlider
     private lateinit var keysRow: Ui.Row
+    private lateinit var grabSwitch: M3Switch
     private var storageRow: Ui.Row? = null
     private var openLogRow: Ui.Row? = null
 
@@ -120,6 +121,19 @@ class MainActivity : AppCompatActivity() {
         if (DebugTools.ENABLED) DLog.listener = { runOnUiThread { renderLog() } }
         render()
         if (DebugTools.ENABLED) renderLog()
+        Updater.check(prefs) { rel -> if (!isFinishing && !isDestroyed) showUpdateDialog(rel) }
+    }
+
+    private fun showUpdateDialog(rel: Updater.Release) {
+        AlertDialog.Builder(this)
+            .setTitle(Strings.updateTitle)
+            .setMessage(Strings.updateMessage(rel.version))
+            .setPositiveButton(Strings.updateBtn) { _, _ ->
+                toast(Strings.updateDownloading)
+                Updater.install(this, rel) { toast(Strings.updateFailed(it)) }
+            }
+            .setNegativeButton(Strings.laterBtn, null)
+            .show()
     }
 
     override fun onStop() {
@@ -250,7 +264,9 @@ class MainActivity : AppCompatActivity() {
             imageTintList = ColorStateList.valueOf(ui.c(R.color.md_on_surface_variant))
         }
         keysRow = ui.Row(Strings.mapKeysRowName, "", chevron) { openPage(Page.KEYS, keysRow) }
-        col.addView(ui.group(sensRow, keysRow))
+        grabSwitch = M3Switch(ui)
+        val grabRow = ui.Row(Strings.grabOnlyRowName, "", grabSwitch) { MouseHub.setGrabOnly(!prefs.grabOnly) }
+        col.addView(ui.group(sensRow, keysRow, grabRow))
 
         // ACCESSIBILITY (status only: turning mouse mode on enables the service automatically)
         col.addView(ui.listTitle(Strings.sectionAccessibility))
@@ -296,7 +312,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun retryAccessibility() {
-        if (MouseHub.serviceConnected) return
+        if (MouseHub.keysReady || prefs.grabOnly) return
         toast(Strings.a11yEnablingToast)
         MouseHub.enableAccessibilityService { r ->
             r.onFailure { toast("${Strings.diagnoseErrorPrefix}${it.message}") }
@@ -314,7 +330,7 @@ class MainActivity : AppCompatActivity() {
         when {
             MouseHub.state == MouseHub.State.CONNECTING -> Unit
             // ON but the accessibility service is dead: repair it instead of switching OFF.
-            MouseHub.mouseModeOn && !MouseHub.serviceConnected -> {
+            MouseHub.mouseModeOn && !MouseHub.keysReady -> {
                 toast(Strings.a11yEnablingToast)
                 MouseHub.setMouseMode(true)
             }
@@ -352,7 +368,8 @@ class MainActivity : AppCompatActivity() {
             MouseHub.State.CONNECTED -> Strings.statusConnected
         }
         statusRow.setDesc(shell + (MouseHub.lastError?.let { Strings.errorSuffix(it) } ?: ""))
-        a11yRow.setDesc(if (MouseHub.serviceConnected) Strings.a11yRunning else Strings.a11yNotEnabled)
+        a11yRow.setDesc(if (MouseHub.keysReady) Strings.a11yRunning else if (prefs.grabOnly) Strings.grabNotRunning else Strings.a11yNotEnabled)
+        grabSwitch.checked = prefs.grabOnly
         subtitle.text = if (on) Strings.subtitleOn else Strings.subtitleOff
         hostChip.text = prefs.host
         portChip.text = prefs.port.toString()
@@ -465,6 +482,7 @@ class MainActivity : AppCompatActivity() {
             )
             addView(ui.actionRow(ui.pill(Strings.resetDefaultsBtn) {
                 prefs.resetKeys()
+                MouseHub.refreshGrabKeys()
                 keySlots.forEach { (slot, chip, _) -> chip.text = keyName(slot.prop.get()) }
                 render()
             }))
@@ -511,13 +529,17 @@ class MainActivity : AppCompatActivity() {
                 after()
             }
             .create()
-        dlg.setOnDismissListener { MouseHub.learningKeys = false }
+        dlg.setOnDismissListener {
+            MouseHub.learningKeys = false
+            MouseHub.refreshGrabKeys()
+        }
         dlg.setOnKeyListener { d, keyCode, ev ->
             if (keyCode == KeyEvent.KEYCODE_BACK) {
                 false
             } else {
                 if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) {
                     slot.prop.set(keyCode)
+                    prefs.learnScan(ev.scanCode, keyCode)
                     after()
                     d.dismiss()
                 }

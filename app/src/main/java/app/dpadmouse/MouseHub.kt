@@ -12,6 +12,7 @@ import android.provider.Settings
 import android.widget.Toast
 import app.dpadmouse.hid.HidMouse
 import app.dpadmouse.service.CursorEngine
+import app.dpadmouse.service.EvGrab
 import app.dpadmouse.service.MouseAccessibilityService
 import app.dpadmouse.shell.AdbBackend
 import app.dpadmouse.shell.ShellBackend
@@ -62,6 +63,17 @@ object MouseHub {
 
     /** In the key-mapping dialog: the accessibility service must release every key so the dialog can receive it. */
     @Volatile var learningKeys = false
+        set(v) {
+            field = v
+            grab?.refresh()
+        }
+
+    /** EVIOCGRAB session (only while [Prefs.grabOnly] and connected). */
+    @Volatile var grab: EvGrab? = null
+        private set
+
+    /** Whether keys are being captured: the EVIOCGRAB helper or the accessibility service, per the mode. */
+    val keysReady: Boolean get() = if (prefs.grabOnly) grab != null else serviceConnected
 
     @Volatile private var backend: ShellBackend? = null
     @Volatile private var enableAfterConnect = false
@@ -83,7 +95,7 @@ object MouseHub {
         }
     }
     private val recoverRunnable = Runnable {
-        if (!mouseModeOn || serviceConnected || a11yBusy) return@Runnable
+        if (!mouseModeOn || prefs.grabOnly || serviceConnected || a11yBusy) return@Runnable
         // Our entry is still listed -> the system is (re)binding it, give it time.
         if (isListed()) return@Runnable
         val now = SystemClock.uptimeMillis()
@@ -151,6 +163,7 @@ object MouseHub {
                 b.writeHid(HidMouse.registerJson())
                 backend = b
                 engine = CursorEngine(b, prefs) { t -> onBackendLost("Write error: ${t.message}") }
+                if (prefs.grabOnly) grab = EvGrab(appContext, b, io).also { it.start() }
                 state = State.CONNECTED
                 DLog.i("Virtual HID mouse created. Toggle mouse mode with the mapped key.")
                 if (DebugTools.ENABLED) DebugTools.onAdbConnected(appContext)
@@ -188,6 +201,8 @@ object MouseHub {
         mouseModeOn = false
         stopWatching()
         main.removeCallbacks(idleRunnable)
+        grab?.stop()
+        grab = null
         engine?.shutdown()
         engine = null
         runCatching { backend?.close() }
@@ -209,6 +224,7 @@ object MouseHub {
 
     private fun scheduleIdleDisconnect() {
         main.removeCallbacks(idleRunnable)
+        if (prefs.grabOnly) return // the helper must stay up to catch the on/off key
         main.postDelayed(idleRunnable, IDLE_DISCONNECT_MS)
     }
 
@@ -231,18 +247,23 @@ object MouseHub {
         if (mouseModeOn == on) {
             // Already ON but the service is dead (disabled / crashed / stale): just repair it. This is what
             // used to need an OFF tap followed by an ON tap.
-            if (on) ensureService()
+            if (on && !prefs.grabOnly) ensureService()
             return
         }
         mouseModeOn = on
         prefs.wasMouseOn = on // remembered so the app can resume automatically next launch
         if (on) {
             main.removeCallbacks(idleRunnable)
-            startWatching()
-            ensureService()
+            if (prefs.grabOnly) {
+                grab?.refresh()
+            } else {
+                startWatching()
+                ensureService()
+            }
         } else {
             engine?.releaseAll()
             stopWatching()
+            grab?.refresh()
             scheduleIdleDisconnect()
         }
         DLog.i("Mouse mode: ${if (on) "ON" else "OFF"}")
@@ -250,8 +271,36 @@ object MouseHub {
         notifyChanged()
     }
 
+    /** Called after the key mapping changed. */
+    fun refreshGrabKeys() {
+        grab?.refresh()
+    }
+
+    /** Switches the key blocking method; reconnects if needed so the new method takes effect at once. */
+    fun setGrabOnly(on: Boolean) {
+        if (prefs.grabOnly == on) return
+        prefs.grabOnly = on
+        stopWatching()
+        val resume = mouseModeOn
+        if (on) {
+            // Release the accessibility service: it is not needed in this mode.
+            a11yExec.execute {
+                runCatching {
+                    writeEnabledServices(enabledServices().filter { ComponentName.unflattenFromString(it) != myComponent }, false)
+                }
+            }
+        } else if (state == State.CONNECTED || canWriteSecure()) {
+            ensureService()
+        }
+        if (state == State.CONNECTED) {
+            enableAfterConnect = resume
+            connect()
+        }
+        notifyChanged()
+    }
+
     private fun ensureService() {
-        if (serviceConnected) return
+        if (prefs.grabOnly || serviceConnected) return
         enableAccessibilityService { r ->
             r.onFailure {
                 DLog.w("Enable accessibility failed: ${it.message}")

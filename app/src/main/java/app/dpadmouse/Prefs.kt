@@ -67,6 +67,34 @@ class Prefs(context: Context) {
     var scrollRightKey: Int = sp.getInt("key_scroll_right", KeyEvent.KEYCODE_UNKNOWN)
         set(v) { field = v; sp.edit().putInt("key_scroll_right", v).apply() }
 
+    var lastUpdateCheck: Long
+        get() = sp.getLong("last_update_check", 0L)
+        set(v) = sp.edit().putLong("last_update_check", v).apply()
+
+    /** Block keys with EVIOCGRAB only (no accessibility service). */
+    @Volatile
+    var grabOnly: Boolean = sp.getBoolean("grab_only", false)
+        set(v) { field = v; sp.edit().putBoolean("grab_only", v).apply() }
+
+    // Scan codes learned while mapping keys ("scan:keycode,..."): exact for remotes with custom key layouts.
+    private var scans: String = sp.getString("scans", "") ?: ""
+
+    fun learnedScans(): Map<Int, Int> = scans.split(',').mapNotNull {
+        val p = it.split(':')
+        val s = p.getOrNull(0)?.toIntOrNull()
+        val k = p.getOrNull(1)?.toIntOrNull()
+        if (s != null && k != null) s to k else null
+    }.toMap()
+
+    @Synchronized
+    fun learnScan(scan: Int, key: Int) {
+        if (scan <= 0) return
+        val m = learnedScans().toMutableMap()
+        m[scan] = key
+        scans = m.entries.joinToString(",") { "${it.key}:${it.value}" }
+        sp.edit().putString("scans", scans).apply()
+    }
+
     fun resetKeys() {
         toggleKey = DEF_TOGGLE
         clickKey = DEF_CLICK

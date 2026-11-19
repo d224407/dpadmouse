@@ -18,6 +18,7 @@ class AdbBackend(
 
     private var client: AdbClient? = null
     private var hid: AdbClient.Stream? = null
+    private var grab: AdbClient.Stream? = null
 
     override val isConnected: Boolean
         get() = client?.isAlive == true && hid?.closed != true
@@ -57,7 +58,34 @@ class AdbBackend(
         hid = null
     }
 
+    override fun startEvGrab(command: String, onLine: (String) -> Unit) {
+        val st = requireClient().openStream("shell,v2,raw:$command")
+        val pending = StringBuilder() // only touched by the reader thread
+        st.onOutput = { text ->
+            pending.append(text)
+            var i = pending.indexOf("\n")
+            while (i >= 0) {
+                val line = pending.substring(0, i).trim()
+                pending.delete(0, i + 1)
+                if (line.isNotEmpty()) onLine(line)
+                i = pending.indexOf("\n")
+            }
+        }
+        grab = st
+    }
+
+    override fun writeEvGrab(line: String) {
+        val st = grab ?: throw IOException("evgrab is not running")
+        requireClient().writeStdin(st, (line + "\n").toByteArray())
+    }
+
+    override fun stopEvGrab() {
+        grab?.let { client?.closeStream(it) }
+        grab = null
+    }
+
     override fun close() {
+        stopEvGrab()
         stopHid()
         client?.close()
         client = null

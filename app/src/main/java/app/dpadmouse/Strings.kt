@@ -85,6 +85,14 @@ object Strings {
         "Not running. Turned on automatically with mouse mode; select to retry now",
         "Chưa chạy. Tự bật cùng chế độ chuột; chọn để thử lại ngay"
     )
+    val updateTitle get() = t("Update available", "Có bản cập nhật")
+    fun updateMessage(v: String) = t("Version $v is ready to install", "Đã có phiên bản $v để cài đặt")
+    val updateBtn get() = t("Update", "Cập nhật")
+    val laterBtn get() = t("Later", "Để sau")
+    val updateDownloading get() = t("Downloading update…", "Đang tải bản cập nhật…")
+    fun updateFailed(msg: String) = t("Update failed: $msg", "Cập nhật lỗi: $msg")
+    val grabOnlyRowName get() = t("Block keys with EVIOCGRAB only", "Chỉ chặn phím bằng EVIOCGRAB")
+    val grabNotRunning get() = t("EVIOCGRAB is not running. Turn mouse mode on to start it", "EVIOCGRAB chưa chạy. Bật chế độ chuột để khởi động")
     val a11yEnablingToast get() = t("Enabling accessibility service…", "Đang bật dịch vụ trợ năng…")
     fun toggleDesc(keyName: String) = t("On/off key: $keyName", "Bật/tắt: $keyName")
     val storageGranted get() = t("Granted", "Đã cấp")

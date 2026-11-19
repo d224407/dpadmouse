@@ -40,7 +40,7 @@ class MouseAccessibilityService : AccessibilityService() {
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
         // Mapping a key: release all keys to the dialog (including the mouse on/off key).
-        if (MouseHub.learningKeys) return false
+        if (MouseHub.learningKeys || MouseHub.prefs.grabOnly) return false
 
         val prefs = MouseHub.prefs
         val code = event.keyCode

@@ -19,8 +19,11 @@ android {
         applicationId = "app.dpadmouse"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        // CI passes -PappVersionCode / -PappVersionName so every release has a higher version.
+        versionCode = providers.gradleProperty("appVersionCode").orNull?.toIntOrNull() ?: 1
+        versionName = providers.gradleProperty("appVersionName").orNull ?: "1.0.0"
+        // "owner/repo" for the update check; empty (check disabled) outside CI.
+        buildConfigField("String", "UPDATE_REPO", "\"${System.getenv("GITHUB_REPOSITORY") ?: ""}\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
