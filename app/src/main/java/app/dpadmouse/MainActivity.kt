@@ -69,6 +69,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var keysRow: Ui.Row
     private lateinit var grabSwitch: M3Switch
     private lateinit var whitelistRow: Ui.Row
+    private lateinit var updateGroup: View
+    private lateinit var updateRow: Ui.Row
     private var storageRow: Ui.Row? = null
     private var openLogRow: Ui.Row? = null
 
@@ -123,20 +125,9 @@ class MainActivity : AppCompatActivity() {
         if (DebugTools.ENABLED) DLog.listener = { runOnUiThread { renderLog() } }
         render()
         if (DebugTools.ENABLED) renderLog()
-        Updater.check(prefs) { rel -> if (!isFinishing && !isDestroyed) showUpdateDialog(rel) }
+        Updater.check(prefs) { if (!isFinishing && !isDestroyed) render() }
     }
 
-    private fun showUpdateDialog(rel: Updater.Release) {
-        AlertDialog.Builder(this)
-            .setTitle(Strings.updateTitle)
-            .setMessage(Strings.updateMessage(rel.version))
-            .setPositiveButton(Strings.updateBtn) { _, _ ->
-                toast(Strings.updateDownloading)
-                Updater.install(this, rel) { toast(Strings.updateFailed(it)) }
-            }
-            .setNegativeButton(Strings.laterBtn, null)
-            .show()
-    }
 
     override fun onStop() {
         MouseHub.removeListener(stateListener)
@@ -200,6 +191,16 @@ class MainActivity : AppCompatActivity() {
             setPadding(ui.dp(16), 0, ui.dp(16), ui.dp(32))
         }
         col.addView(header, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        // UPDATE (only visible while a newer release is available)
+        updateRow = ui.Row(Strings.updateTitle, "", ui.chip(Strings.updateBtn)) {
+            Updater.pending(prefs)?.let { rel ->
+                toast(Strings.updateDownloading)
+                Updater.install(this, rel) { toast(Strings.updateFailed(it)) }
+            }
+        }
+        updateGroup = ui.group(updateRow).apply { visibility = View.GONE }
+        col.addView(updateGroup)
 
         // VIRTUAL MOUSE
         col.addView(ui.listTitle(Strings.sectionVirtualMouse))
@@ -373,6 +374,9 @@ class MainActivity : AppCompatActivity() {
         statusRow.setDesc(shell + (MouseHub.lastError?.let { Strings.errorSuffix(it) } ?: ""))
         a11yRow.setDesc(if (MouseHub.keysReady) Strings.a11yRunning else if (prefs.grabOnly) Strings.grabNotRunning else Strings.a11yNotEnabled)
         grabSwitch.checked = prefs.grabOnly
+        val rel = Updater.pending(prefs)
+        updateGroup.visibility = if (rel != null) View.VISIBLE else View.GONE
+        if (rel != null) updateRow.setDesc(Strings.updateMessage(rel.version))
         whitelistRow.setDesc(Strings.whitelistDesc(prefs.whitelist().size))
         subtitle.text = if (on) Strings.subtitleOn else Strings.subtitleOff
         hostChip.text = prefs.host

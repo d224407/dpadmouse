@@ -67,6 +67,11 @@ class Prefs(context: Context) {
     var scrollRightKey: Int = sp.getInt("key_scroll_right", KeyEvent.KEYCODE_UNKNOWN)
         set(v) { field = v; sp.edit().putInt("key_scroll_right", v).apply() }
 
+    /** Newest release found by the update check ("version|url|size"), empty when up to date. */
+    var pendingUpdate: String
+        get() = sp.getString("pending_update", "") ?: ""
+        set(v) = sp.edit().putString("pending_update", v).apply()
+
     var lastUpdateCheck: Long
         get() = sp.getLong("last_update_check", 0L)
         set(v) = sp.edit().putLong("last_update_check", v).apply()

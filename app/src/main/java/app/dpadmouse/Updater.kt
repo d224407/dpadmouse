@@ -18,8 +18,16 @@ object Updater {
     private const val CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
     private val main = Handler(Looper.getMainLooper())
 
-    /** Background check, at most every 6 hours; [onFound] runs on the main thread if a newer version exists. */
-    fun check(prefs: Prefs, onFound: (Release) -> Unit) {
+    /** The release found by the last check if it is newer than the installed version (survives restarts). */
+    fun pending(prefs: Prefs): Release? {
+        val p = prefs.pendingUpdate.split('|')
+        if (p.size != 3) return null
+        val size = p[2].toLongOrNull() ?: return null
+        return if (isNewer(p[0])) Release(p[0], p[1], size) else null
+    }
+
+    /** Background check, at most every 6 hours; [onChange] runs on the main thread when the result is stored. */
+    fun check(prefs: Prefs, onChange: () -> Unit) {
         if (BuildConfig.DEBUG || BuildConfig.UPDATE_REPO.isEmpty()) return
         val now = System.currentTimeMillis()
         if (now - prefs.lastUpdateCheck < CHECK_INTERVAL_MS) return
@@ -27,7 +35,9 @@ object Updater {
             runCatching { fetchLatest() }
                 .onSuccess { rel ->
                     prefs.lastUpdateCheck = now
-                    if (rel != null && isNewer(rel.version)) main.post { onFound(rel) }
+                    prefs.pendingUpdate =
+                        if (rel != null && isNewer(rel.version)) "${rel.version}|${rel.url}|${rel.size}" else ""
+                    main.post { onChange() }
                 }
                 .onFailure { DLog.w("Update check failed: ${it.message}") }
         }, "dpadmouse-update-check").apply { isDaemon = true; start() }

@@ -88,7 +88,6 @@ object Strings {
     val updateTitle get() = t("Update available", "Có bản cập nhật")
     fun updateMessage(v: String) = t("Version $v is ready to install", "Đã có phiên bản $v để cài đặt")
     val updateBtn get() = t("Update", "Cập nhật")
-    val laterBtn get() = t("Later", "Để sau")
     val updateDownloading get() = t("Downloading update…", "Đang tải bản cập nhật…")
     fun updateFailed(msg: String) = t("Update failed: $msg", "Cập nhật lỗi: $msg")
     val mapKeyFirst get() = t("Map a key first to choose the remote", "Hãy gán một phím trước để chọn điều khiển")
