@@ -163,7 +163,7 @@ object MouseHub {
                 b.writeHid(HidMouse.registerJson())
                 backend = b
                 engine = CursorEngine(b, prefs) { t -> onBackendLost("Write error: ${t.message}") }
-                if (prefs.grabOnly) grab = EvGrab(appContext, b, io).also { it.start() }
+                if (prefs.grabOnly) startGrab(b)
                 state = State.CONNECTED
                 DLog.i("Virtual HID mouse created. Toggle mouse mode with the mapped key.")
                 if (DebugTools.ENABLED) DebugTools.onAdbConnected(appContext)
@@ -271,9 +271,41 @@ object MouseHub {
         notifyChanged()
     }
 
-    /** Called after the key mapping changed. */
+    /** Starts the EVIOCGRAB helper. Never fatal: the ADB connection and the virtual mouse stay up if it fails. */
+    private fun startGrab(b: ShellBackend) {
+        if (grab != null) return
+        val g = EvGrab(appContext, b, io) { onGrabLost() }
+        try {
+            g.start()
+            grab = g
+        } catch (e: EvGrab.NoRemote) {
+            g.stop()
+            toast(Strings.mapKeyFirst)
+        } catch (t: Throwable) {
+            g.stop()
+            DLog.w("EVIOCGRAB failed: ${t.message}")
+            toast(Strings.grabFailed(t.message ?: t.javaClass.simpleName))
+        }
+        notifyChanged()
+    }
+
+    private fun onGrabLost() {
+        if (grab == null) return
+        grab?.stop()
+        grab = null
+        toast(Strings.grabFailed("helper stopped"))
+        notifyChanged()
+    }
+
+    /** Called after the key mapping changed; also starts the helper once a remote has been chosen. */
     fun refreshGrabKeys() {
-        grab?.refresh()
+        val g = grab
+        if (g != null) {
+            g.refresh()
+        } else if (prefs.grabOnly && state == State.CONNECTED) {
+            val b = backend ?: return
+            io.execute { startGrab(b) }
+        }
     }
 
     /** Switches the key blocking method; reconnects if needed so the new method takes effect at once. */

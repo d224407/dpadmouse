@@ -22,41 +22,74 @@ import java.util.concurrent.TimeUnit
 class EvGrab(
     private val context: Context,
     private val shell: ShellBackend,
-    private val io: Executor
+    private val io: Executor,
+    private val onLost: () -> Unit
 ) {
+    class NoRemote : IOException("no remote selected")
+
     private val main = Handler(Looper.getMainLooper())
     private val replies = LinkedBlockingQueue<String>()
     private val extra = StringBuffer()
     @Volatile private var scanToKey: Map<Int, Int> = emptyMap()
     private var sentKeys: List<Int>? = null
+    private var sentProtect: List<Int>? = null
+    private var sentDevices: List<String>? = null
+
+    /** Keeps the helper's fail-open watchdog fed; a dead helper is noticed here. */
+    private val beat = object : Runnable {
+        override fun run() {
+            io.execute {
+                runCatching { shell.writeEvGrab("P") }.onFailure {
+                    main.post { onLost() }
+                }
+            }
+            main.postDelayed(this, HEARTBEAT_MS)
+        }
+    }
 
     /** Blocking; call from the io thread. */
     fun start() {
+        // Only the remote the user mapped keys on is ever grabbed.
+        if (MouseHub.prefs.grabDevices().isEmpty()) throw NoRemote()
         val remote = install()
         shell.startEvGrab("exec $remote") { onLine(it) }
         expect("READY")
-        pushKeys()
+        pushConfig()
         shell.writeEvGrab("G 1")
-        expect("OK")
+        expect("OK", 6)
+        main.postDelayed(beat, HEARTBEAT_MS)
         DLog.i("EVIOCGRAB active")
     }
 
     fun stop() {
+        main.removeCallbacks(beat)
         runCatching { shell.stopEvGrab() }
     }
 
     /** Re-sends the consumed key list after the mode or the key mapping changed. */
     fun refresh() {
-        io.execute { runCatching { pushKeys() }.onFailure { DLog.w("evgrab refresh: ${it.message}") } }
+        io.execute { runCatching { pushConfig() }.onFailure { DLog.w("evgrab refresh: ${it.message}") } }
     }
 
     @Synchronized
-    private fun pushKeys() {
-        val (scans, map) = ScanMap.build(MouseHub.prefs, MouseHub.mouseModeOn, MouseHub.learningKeys)
-        scanToKey = map
-        if (scans == sentKeys) return
-        shell.writeEvGrab("K " + scans.joinToString(" "))
-        sentKeys = scans
+    private fun pushConfig() {
+        val prefs = MouseHub.prefs
+        val plan = ScanMap.build(prefs, MouseHub.mouseModeOn, MouseHub.learningKeys)
+        scanToKey = plan.map
+        val devices = prefs.grabDevices().sorted()
+        if (devices != sentDevices) {
+            shell.writeEvGrab("DC")
+            devices.forEach { shell.writeEvGrab("D $it") }
+            sentDevices = devices
+        }
+        if (plan.protect != sentProtect) {
+            shell.writeEvGrab("W " + plan.protect.joinToString(" "))
+            sentProtect = plan.protect
+        }
+        if (plan.consume != sentKeys) {
+            shell.writeEvGrab("K " + plan.consume.joinToString(" "))
+            sentKeys = plan.consume
+        }
     }
 
     private fun onLine(line: String) {
@@ -71,6 +104,7 @@ class EvGrab(
                 main.post { KeyRouter.handle(MouseHub.prefs, key, down, down) }
             }
             line.startsWith("READY") || line == "OK" || line.startsWith("ERR") -> replies.offer(line)
+            line == "REGRAB" -> DLog.i("evgrab: grab re-armed")
             else -> {
                 DLog.w("evgrab: $line")
                 if (extra.length < 400) extra.append(line).append(' ')
@@ -78,8 +112,8 @@ class EvGrab(
         }
     }
 
-    private fun expect(prefix: String) {
-        val line = replies.poll(4, TimeUnit.SECONDS)
+    private fun expect(prefix: String, seconds: Long = 4) {
+        val line = replies.poll(seconds, TimeUnit.SECONDS)
             ?: throw IOException("evgrab did not respond ${extra.toString().trim()}".trim())
         if (line.startsWith("ERR")) throw IOException(line.removePrefix("ERR").trim())
         if (!line.startsWith(prefix)) throw IOException("evgrab: unexpected '$line'")
@@ -105,5 +139,9 @@ class EvGrab(
             }
         }
         return remote
+    }
+
+    private companion object {
+        const val HEARTBEAT_MS = 3_000L
     }
 }

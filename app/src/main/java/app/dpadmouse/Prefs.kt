@@ -95,6 +95,39 @@ class Prefs(context: Context) {
         sp.edit().putString("scans", scans).apply()
     }
 
+    /** Names of the input devices the EVIOCGRAB helper may grab (learned from the key mapper). */
+    @Synchronized
+    fun grabDevices(): Set<String> =
+        (sp.getString("grab_devices", "") ?: "").split('\n').filter { it.isNotBlank() }.toSet()
+
+    @Synchronized
+    fun addGrabDevice(name: String) {
+        if (name.isBlank() || name in grabDevices()) return
+        sp.edit().putString("grab_devices", (grabDevices() + name).joinToString("\n")).apply()
+    }
+
+    /** User whitelist: scan code -> key code of keys that are never blocked. */
+    @Synchronized
+    fun whitelist(): Map<Int, Int> = (sp.getString("whitelist", "") ?: "").split(',').mapNotNull {
+        val p = it.split(':')
+        val s = p.getOrNull(0)?.toIntOrNull()
+        val k = p.getOrNull(1)?.toIntOrNull()
+        if (s != null && k != null) s to k else null
+    }.toMap()
+
+    @Synchronized
+    fun addWhitelist(scan: Int, key: Int) {
+        if (scan <= 0) return
+        saveWhitelist(whitelist() + (scan to key))
+    }
+
+    @Synchronized
+    fun removeWhitelist(scan: Int) = saveWhitelist(whitelist() - scan)
+
+    private fun saveWhitelist(m: Map<Int, Int>) {
+        sp.edit().putString("whitelist", m.entries.joinToString(",") { "${it.key}:${it.value}" }).apply()
+    }
+
     fun resetKeys() {
         toggleKey = DEF_TOGGLE
         clickKey = DEF_CLICK

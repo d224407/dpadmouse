@@ -28,6 +28,7 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import app.dpadmouse.service.ScanMap
 import app.dpadmouse.ui.M3Switch
 import app.dpadmouse.ui.TvSlider
 import app.dpadmouse.ui.Ui
@@ -67,6 +68,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sensSlider: TvSlider
     private lateinit var keysRow: Ui.Row
     private lateinit var grabSwitch: M3Switch
+    private lateinit var whitelistRow: Ui.Row
     private var storageRow: Ui.Row? = null
     private var openLogRow: Ui.Row? = null
 
@@ -266,7 +268,8 @@ class MainActivity : AppCompatActivity() {
         keysRow = ui.Row(Strings.mapKeysRowName, "", chevron) { openPage(Page.KEYS, keysRow) }
         grabSwitch = M3Switch(ui)
         val grabRow = ui.Row(Strings.grabOnlyRowName, "", grabSwitch) { MouseHub.setGrabOnly(!prefs.grabOnly) }
-        col.addView(ui.group(sensRow, keysRow, grabRow))
+        whitelistRow = ui.Row(Strings.whitelistRowName, "") { showWhitelistDialog() }
+        col.addView(ui.group(sensRow, keysRow, grabRow, whitelistRow))
 
         // ACCESSIBILITY (status only: turning mouse mode on enables the service automatically)
         col.addView(ui.listTitle(Strings.sectionAccessibility))
@@ -370,6 +373,7 @@ class MainActivity : AppCompatActivity() {
         statusRow.setDesc(shell + (MouseHub.lastError?.let { Strings.errorSuffix(it) } ?: ""))
         a11yRow.setDesc(if (MouseHub.keysReady) Strings.a11yRunning else if (prefs.grabOnly) Strings.grabNotRunning else Strings.a11yNotEnabled)
         grabSwitch.checked = prefs.grabOnly
+        whitelistRow.setDesc(Strings.whitelistDesc(prefs.whitelist().size))
         subtitle.text = if (on) Strings.subtitleOn else Strings.subtitleOff
         hostChip.text = prefs.host
         portChip.text = prefs.port.toString()
@@ -538,9 +542,58 @@ class MainActivity : AppCompatActivity() {
                 false
             } else {
                 if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) {
-                    slot.prop.set(keyCode)
-                    prefs.learnScan(ev.scanCode, keyCode)
-                    after()
+                    if (prefs.grabOnly && ScanMap.isProtected(prefs, ev.scanCode, keyCode)) {
+                        toast(Strings.keyProtectedToast(keyName(keyCode)))
+                    } else {
+                        slot.prop.set(keyCode)
+                        prefs.learnScan(ev.scanCode, keyCode)
+                        // The remote this key came from is the only device EVIOCGRAB may grab.
+                        ev.device?.name?.removePrefix("dpadmouse-")?.let { prefs.addGrabDevice(it) }
+                        after()
+                        d.dismiss()
+                    }
+                }
+                true
+            }
+        }
+        dlg.show()
+    }
+
+    /** Lists the user's whitelisted keys (select one to remove it) and lets a new one be added. */
+    private fun showWhitelistDialog() {
+        val entries = prefs.whitelist().entries.sortedBy { it.value }
+        AlertDialog.Builder(this)
+            .setTitle(Strings.whitelistRowName)
+            .setItems(entries.map { keyName(it.value) }.toTypedArray()) { _, i ->
+                prefs.removeWhitelist(entries[i].key)
+                MouseHub.refreshGrabKeys()
+                render()
+                showWhitelistDialog()
+            }
+            .setPositiveButton(Strings.whitelistAddBtn) { _, _ -> learnWhitelistKey() }
+            .setNegativeButton(Strings.closeBtn, null)
+            .show()
+    }
+
+    private fun learnWhitelistKey() {
+        MouseHub.learningKeys = true
+        val dlg = AlertDialog.Builder(this)
+            .setTitle(Strings.whitelistRowName)
+            .setMessage(Strings.learnMessage)
+            .setNegativeButton(Strings.cancelBtn, null)
+            .create()
+        dlg.setOnDismissListener {
+            MouseHub.learningKeys = false
+            MouseHub.refreshGrabKeys()
+            render()
+            showWhitelistDialog()
+        }
+        dlg.setOnKeyListener { d, keyCode, ev ->
+            if (keyCode == KeyEvent.KEYCODE_BACK) {
+                false
+            } else {
+                if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) {
+                    prefs.addWhitelist(ev.scanCode, keyCode)
                     d.dismiss()
                 }
                 true

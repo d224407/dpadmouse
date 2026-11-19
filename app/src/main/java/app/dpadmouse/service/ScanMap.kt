@@ -48,14 +48,35 @@ object ScanMap {
         row.forEachIndexed { i, ch -> m[first + i] = KeyEvent.KEYCODE_A + (ch - 'A') }
     }
 
+    /** Keys that are never blocked, whatever the mapping or the user whitelist says. */
+    private val PROTECTED_KEYS = setOf(
+        KeyEvent.KEYCODE_POWER, KeyEvent.KEYCODE_SLEEP, KeyEvent.KEYCODE_WAKEUP,
+        KeyEvent.KEYCODE_TV_POWER, KeyEvent.KEYCODE_STB_POWER,
+        KeyEvent.KEYCODE_HOME, KeyEvent.KEYCODE_BACK,
+        KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN, KeyEvent.KEYCODE_VOLUME_MUTE
+    )
+
+    /** Same keys as Linux scan codes (power, sleep, wakeup, home x2, back, mute, volume down/up). */
+    private val PROTECTED_SCANS = intArrayOf(116, 142, 143, 102, 172, 158, 113, 114, 115)
+
+    fun isProtected(prefs: Prefs, scan: Int, key: Int): Boolean =
+        key in PROTECTED_KEYS || scan in PROTECTED_SCANS || scan in prefs.whitelist().keys ||
+            key in prefs.whitelist().values
+
+    class Plan(val consume: List<Int>, val protect: List<Int>, val map: Map<Int, Int>)
+
     /**
-     * Returns the scan codes the helper must consume and the scan -> key code map used to route its events.
+     * What the helper must consume / never consume, and the scan -> key code map used to route its events.
      * Mouse off: only the on/off key. Mouse on: every key the mouse uses. While mapping keys: nothing.
      */
-    fun build(prefs: Prefs, mouseOn: Boolean, learning: Boolean): Pair<List<Int>, Map<Int, Int>> {
+    fun build(prefs: Prefs, mouseOn: Boolean, learning: Boolean): Plan {
         val map = HashMap(BASE)
         map.putAll(prefs.learnedScans())
-        if (learning) return emptyList<Int>() to map
+        val white = prefs.whitelist()
+        val protectedKeys = PROTECTED_KEYS + white.values
+        val protect = (PROTECTED_SCANS.toList() + white.keys + map.filter { it.value in PROTECTED_KEYS }.keys)
+            .distinct().sorted()
+        if (learning) return Plan(emptyList(), protect, map)
         val wanted = HashSet<Int>()
         wanted.add(prefs.toggleKey)
         if (mouseOn) {
@@ -72,6 +93,8 @@ object ScanMap {
             }
         }
         wanted.remove(KeyEvent.KEYCODE_UNKNOWN)
-        return map.filter { it.value in wanted }.keys.sorted() to map
+        val consume = map.filter { it.value in wanted && it.value !in protectedKeys && it.key !in protect }
+            .keys.sorted()
+        return Plan(consume, protect, map)
     }
 }
