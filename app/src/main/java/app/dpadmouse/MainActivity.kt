@@ -1,5 +1,9 @@
 package app.dpadmouse
 
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -88,6 +92,13 @@ class MainActivity : AppCompatActivity() {
 
     private val stateListener: () -> Unit = { render() }
 
+    // The accessibility status is verified against the system; refresh it when the setting changes
+    // (a service can be turned off without any callback reaching the app).
+    private val a11ySettingObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) {
+            window?.decorView?.postDelayed({ render() }, 400)
+        }
+    }
     private val backCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() = showPage(Page.MAIN)
     }
@@ -124,6 +135,9 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         MouseHub.addListener(stateListener)
+        contentResolver.registerContentObserver(
+            Settings.Secure.getUriFor(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES), false, a11ySettingObserver
+        )
         if (DebugTools.ENABLED) DLog.listener = { runOnUiThread { renderLog() } }
         render()
         if (DebugTools.ENABLED) renderLog()
@@ -133,6 +147,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         MouseHub.removeListener(stateListener)
+        contentResolver.unregisterContentObserver(a11ySettingObserver)
         if (DebugTools.ENABLED) DLog.listener = null
         super.onStop()
     }
@@ -385,7 +400,7 @@ class MainActivity : AppCompatActivity() {
         a11yRow.setDesc(
             when {
                 prefs.grabOnly -> Strings.a11yNotUsed
-                MouseHub.serviceConnected -> Strings.a11yRunning
+                MouseHub.serviceActive() -> Strings.a11yRunning
                 else -> Strings.a11yNotEnabled
             }
         )
