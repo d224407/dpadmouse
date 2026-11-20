@@ -50,8 +50,8 @@ jobs:
 
       - name: Build release APK
         run: |
-          ./gradlew assembleRelease -PappVersionCode=$VERSION_CODE -PappVersionName=$VERSION_NAME
-          mv app/build/outputs/apk/release/*.apk "dpadmouse-v$VERSION_NAME.apk"
+          ./gradlew assembleDebug -PappVersionCode=$VERSION_CODE -PappVersionName=$VERSION_NAME
+          mv app/build/outputs/apk/debug/*.apk "dpadmouse-v$VERSION_NAME.apk"
 
       # A single file: it sits at the root of the artifact zip.
       - name: Upload APK
