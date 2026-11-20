@@ -28,7 +28,12 @@ class CursorEngine(
     private var buttons = 0
     private var scrollDir = 0   // vertical: 1 = up, -1 = down
     private var panDir = 0      // horizontal: 1 = right, -1 = left
-    private var nextScrollAt = 0L
+    private var scrollStart = 0L
+    private var panStart = 0L
+    private var sv = 0f // eased scroll velocity, notches/s (+ = up)
+    private var pv = 0f // eased pan velocity, notches/s (+ = right)
+    private var sRem = 0f
+    private var pRem = 0f
     private var holdStart = 0L
     private var lastTickAt = 0L
     private var vx = 0f // eased velocity, px/s
@@ -61,9 +66,8 @@ class CursorEngine(
         val was = scrollDir
         scrollDir = dir
         if (dir != 0) {
-            // Only restart the throttle on a new press: key auto-repeat calls this again and again,
-            // and resetting here made scrolling run at the repeat rate instead of SCROLL_INTERVAL_MS.
-            if (was != dir) nextScrollAt = 0L
+            // Restart the ramp only on a new press: key auto-repeat calls this again and again.
+            if (was != dir) scrollStart = SystemClock.uptimeMillis()
             startTicking()
         }
     }
@@ -73,7 +77,7 @@ class CursorEngine(
         val was = panDir
         panDir = dir
         if (dir != 0) {
-            if (was != dir) nextScrollAt = 0L
+            if (was != dir) panStart = SystemClock.uptimeMillis()
             startTicking()
         }
     }
@@ -121,18 +125,19 @@ class CursorEngine(
     private val tick = object : Runnable {
         override fun run() {
             val moving = held != 0 || abs(vx) > STOP_SPEED || abs(vy) > STOP_SPEED
-            if (failed || (!moving && scrollDir == 0 && panDir == 0)) {
+            val scrolling = scrollDir != 0 || panDir != 0 || abs(sv) > SCROLL_STOP || abs(pv) > SCROLL_STOP
+            if (failed || (!moving && !scrolling)) {
                 stopMotion()
                 ticking = false
                 return
             }
             val now = SystemClock.uptimeMillis()
+            val dt = if (lastTickAt == 0L) TICK_MS / 1000f else minOf((now - lastTickAt) / 1000f, MAX_DT)
+            lastTickAt = now
 
             val dirX = (if (held and RIGHT != 0) 1 else 0) - (if (held and LEFT != 0) 1 else 0)
             val dirY = (if (held and DOWN != 0) 1 else 0) - (if (held and UP != 0) 1 else 0)
             if (moving) {
-                val dt = if (lastTickAt == 0L) TICK_MS / 1000f else minOf((now - lastTickAt) / 1000f, MAX_DT)
-                lastTickAt = now
                 var tx = dirX.toFloat()
                 var ty = dirY.toFloat()
                 if (tx != 0f && ty != 0f) {
@@ -157,12 +162,27 @@ class CursorEngine(
                 sendMove(dx, dy)
             }
 
-            if ((scrollDir != 0 || panDir != 0) && now >= nextScrollAt) {
-                report(buttons, 0, 0, scrollDir, panDir)
-                nextScrollAt = now + SCROLL_INTERVAL_MS
+            if (scrolling) {
+                sv = easeScroll(sv, scrollDir, scrollStart, now, dt)
+                pv = easeScroll(pv, panDir, panStart, now, dt)
+                val fs = sv * dt + sRem
+                val fp = pv * dt + pRem
+                val ws = fs.toInt().coerceIn(-127, 127)
+                val wp = fp.toInt().coerceIn(-127, 127)
+                sRem = fs - ws
+                pRem = fp - wp
+                if (ws != 0 || wp != 0) report(buttons, 0, 0, ws, wp)
             }
             handler.postDelayed(this, TICK_MS)
         }
+    }
+
+    /** Eases the scroll velocity toward a target that ramps up with the hold time. */
+    private fun easeScroll(v: Float, dir: Int, start: Long, now: Long, dt: Float): Float {
+        val ratio = minOf((now - start) / 1000f / SCROLL_ACCEL_TIME, 1f)
+        val target = dir * (SCROLL_BASE + (SCROLL_MAX - SCROLL_BASE) * ratio * ratio)
+        val response = if (dir != 0) SCROLL_RESPONSE else SCROLL_DECEL
+        return v + (target - v) * (1f - exp(-response * dt))
     }
 
     private fun stopMotion() {
@@ -170,6 +190,10 @@ class CursorEngine(
         vy = 0f
         remX = 0f
         remY = 0f
+        sv = 0f
+        pv = 0f
+        sRem = 0f
+        pRem = 0f
         lastTickAt = 0L
     }
 
@@ -217,6 +241,13 @@ class CursorEngine(
         private const val RESPONSE = 16f // velocity easing while held
         private const val DECEL = 12f // velocity easing after release
         private const val STOP_SPEED = 4f
-        private const val SCROLL_INTERVAL_MS = 120L
+
+        // Scroll (wheel notches/s): eased and ramped like the cursor, sent every tick as whole notches.
+        private const val SCROLL_BASE = 8f
+        private const val SCROLL_MAX = 28f
+        private const val SCROLL_ACCEL_TIME = 0.9f // s
+        private const val SCROLL_RESPONSE = 14f
+        private const val SCROLL_DECEL = 22f
+        private const val SCROLL_STOP = 0.5f
     }
 }
