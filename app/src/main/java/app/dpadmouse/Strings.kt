@@ -53,7 +53,10 @@ object Strings {
     val mapKeysRowName get() = t("Map keys", "Gán phím")
 
     // --- Accessibility section
-    val sectionAccessibility get() = t("Accessibility", "Trợ năng")
+    val sectionDiagnostic get() = t("Diagnostic", "Chẩn đoán")
+    val a11yNotUsed get() = t("Not used (EVIOCGRAB mode)", "Không dùng (chế độ EVIOCGRAB)")
+    val grabRunning get() = t("Helper running", "Helper đang chạy")
+    val grabOff get() = t("Off", "Tắt")
     val a11yServiceRowName get() = t("Accessibility service", "Dịch vụ trợ năng")
 
     // --- Debug section

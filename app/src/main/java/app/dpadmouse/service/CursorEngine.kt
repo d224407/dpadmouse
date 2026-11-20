@@ -10,7 +10,7 @@ import app.dpadmouse.shell.ShellBackend
 import java.io.IOException
 
 /**
- * Turns key state (held/released) into smooth HID reports: a ~60Hz loop, accelerating while a key is held.
+ * Turns key state (held/released) into smooth HID reports: a ~60Hz loop, uniformly accelerating while a key is held.
  * Everything runs on its own thread ("dpadmouse-hid") so it never blocks the UI/Accessibility.
  */
 class CursorEngine(
@@ -28,6 +28,8 @@ class CursorEngine(
     private var panDir = 0      // horizontal: 1 = right, -1 = left
     private var nextScrollAt = 0L
     private var holdStart = 0L
+    private var lastTickAt = 0L
+    private var lastSpeed = 0f
     private var remX = 0f
     private var remY = 0f
     private var ticking = false
@@ -35,7 +37,10 @@ class CursorEngine(
 
     fun press(dir: Int) = handler.post {
         if (held == 0) {
-            holdStart = SystemClock.uptimeMillis()
+            val now = SystemClock.uptimeMillis()
+            holdStart = now
+            lastTickAt = now - TICK_MS
+            lastSpeed = startSpeed()
             remX = 0f; remY = 0f
         }
         held = held or dir
@@ -125,8 +130,15 @@ class CursorEngine(
             val dirX = (if (held and RIGHT != 0) 1 else 0) - (if (held and LEFT != 0) 1 else 0)
             val dirY = (if (held and DOWN != 0) 1 else 0) - (if (held and UP != 0) 1 else 0)
             if (dirX != 0 || dirY != 0) {
-                val ramp = ((now - holdStart).toFloat() / ACCEL_RAMP_MS).coerceIn(0f, 1f)
-                var speed = (2f + prefs.sensitivity * 0.14f) * (1f + (ACCEL_MAX - 1f) * ramp)
+                // Uniform acceleration: v = v0 + a*t up to vMax, distance integrated over the real elapsed time
+                // (trapezoid), so jitter in the loop never makes the motion uneven.
+                val sens = prefs.sensitivity
+                val t = (now - holdStart) / 1000f
+                val v = minOf(startSpeed() + (ACC_BASE + ACC_PER * sens) * t, VMAX_BASE + VMAX_PER * sens)
+                val dt = (now - lastTickAt).coerceIn(0L, MAX_DT_MS) / 1000f
+                var speed = (lastSpeed + v) * 0.5f * dt
+                lastSpeed = v
+                lastTickAt = now
                 if (dirX != 0 && dirY != 0) speed *= 0.7071f
                 val fx = dirX * speed + remX
                 val fy = dirY * speed + remY
@@ -144,6 +156,9 @@ class CursorEngine(
             handler.postDelayed(this, TICK_MS)
         }
     }
+
+    /** Initial speed in px/s. */
+    private fun startSpeed() = V0_BASE + V0_PER * prefs.sensitivity
 
     private fun sendMove(dxIn: Int, dyIn: Int) {
         var dx = dxIn
@@ -180,8 +195,15 @@ class CursorEngine(
         const val RIGHT = 8
 
         private const val TICK_MS = 16L
-        private const val ACCEL_MAX = 3f
-        private const val ACCEL_RAMP_MS = 900f
+        private const val MAX_DT_MS = 64L
+
+        // Cursor motion in px/s, px/s^2 (all grow with the sensitivity setting 1..100).
+        private const val V0_BASE = 40f
+        private const val V0_PER = 2f
+        private const val ACC_BASE = 400f
+        private const val ACC_PER = 40f
+        private const val VMAX_BASE = 600f
+        private const val VMAX_PER = 40f
         private const val SCROLL_INTERVAL_MS = 120L
     }
 }
