@@ -53,6 +53,7 @@ object Strings {
     val mapKeysRowName get() = t("Map keys", "Gán phím")
 
     // --- Accessibility section
+    val mouseOnNotification get() = t("Mouse mode is on", "Chế độ chuột đang bật")
     val sectionDiagnostic get() = t("Diagnostic", "Chẩn đoán")
     val a11yNotUsed get() = t("Not used (EVIOCGRAB mode)", "Không dùng (chế độ EVIOCGRAB)")
     val grabRunning get() = t("Helper running", "Helper đang chạy")

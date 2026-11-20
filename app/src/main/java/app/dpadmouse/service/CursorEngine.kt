@@ -18,7 +18,7 @@ class CursorEngine(
     private val prefs: Prefs,
     private val onFailure: (Throwable) -> Unit
 ) {
-    private val thread = HandlerThread("dpadmouse-hid").apply { start() }
+    private val thread = HandlerThread("dpadmouse-hid", android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY).apply { start() }
     private val handler = Handler(thread.looper)
 
     // Only accessed on the handler thread

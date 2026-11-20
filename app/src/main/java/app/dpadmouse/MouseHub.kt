@@ -4,6 +4,7 @@ import android.Manifest
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.os.Handler
@@ -15,6 +16,7 @@ import android.widget.Toast
 import app.dpadmouse.hid.HidMouse
 import app.dpadmouse.service.CursorEngine
 import app.dpadmouse.service.EvGrab
+import app.dpadmouse.service.KeepAliveService
 import app.dpadmouse.service.MouseAccessibilityService
 import app.dpadmouse.shell.AdbBackend
 import app.dpadmouse.shell.ShellBackend
@@ -201,6 +203,7 @@ object MouseHub {
 
     private fun teardown() {
         mouseModeOn = false
+        stopKeepAlive()
         stopWatching()
         main.removeCallbacks(idleRunnable)
         grab?.stop()
@@ -256,6 +259,7 @@ object MouseHub {
         prefs.wasMouseOn = on // remembered so the app can resume automatically next launch
         if (on) {
             main.removeCallbacks(idleRunnable)
+            startKeepAlive()
             if (prefs.grabOnly) {
                 grab?.refresh()
             } else {
@@ -264,6 +268,7 @@ object MouseHub {
             }
         } else {
             engine?.releaseAll()
+            stopKeepAlive()
             stopWatching()
             grab?.refresh()
             scheduleIdleDisconnect()
@@ -271,6 +276,19 @@ object MouseHub {
         DLog.i("Mouse mode: ${if (on) "ON" else "OFF"}")
         toast(if (on) "Mouse: ON" else "Mouse: OFF")
         notifyChanged()
+    }
+
+    /** Keeps the process at foreground priority while mouse mode is on (see KeepAliveService). */
+    private fun startKeepAlive() {
+        try {
+            appContext.startForegroundService(Intent(appContext, KeepAliveService::class.java))
+        } catch (t: Throwable) {
+            DLog.w("Keep-alive service not started: ${t.message}") // e.g. background start not allowed
+        }
+    }
+
+    private fun stopKeepAlive() {
+        runCatching { appContext.stopService(Intent(appContext, KeepAliveService::class.java)) }
     }
 
     /** Starts the EVIOCGRAB helper. Never fatal: the ADB connection and the virtual mouse stay up if it fails. */

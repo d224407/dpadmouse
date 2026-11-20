@@ -163,6 +163,7 @@ class AdbClient(
     // ------------------------------------------------------------------ internal
 
     private fun readerLoop() {
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY) // key events arrive here in EVIOCGRAB mode
         try {
             while (!closed) {
                 val m = readMessage()
