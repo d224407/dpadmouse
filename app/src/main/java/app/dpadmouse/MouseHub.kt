@@ -172,6 +172,7 @@ object MouseHub {
                 DLog.i("Virtual HID mouse created. Toggle mouse mode with the mapped key.")
                 if (DebugTools.ENABLED) DebugTools.onAdbConnected(appContext)
                 grantSecureSettings(b)
+                allowBackground(b)
                 if (enableAfterConnect) setMouseMode(true) else scheduleIdleDisconnect()
             } catch (t: Throwable) {
                 DLog.e("Connection failed: ${t.message}", t)
@@ -433,6 +434,23 @@ object MouseHub {
             DLog.i("Grant WRITE_SECURE_SETTINGS: $out")
         } catch (t: Throwable) {
             DLog.w("Could not grant WRITE_SECURE_SETTINGS: ${t.message}")
+        }
+    }
+
+    /**
+     * Puts the app on the battery-optimization allowlist over ADB. Besides keeping the process from being
+     * throttled, Android 12+ lets an allowlisted app start its foreground service from the background
+     * (e.g. when mouse mode is switched on with the remote while another app is in front).
+     */
+    private fun allowBackground(b: ShellBackend) {
+        val pm = appContext.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        val pkg = appContext.packageName
+        if (pm.isIgnoringBatteryOptimizations(pkg)) return
+        try {
+            val out = b.exec("cmd deviceidle whitelist +$pkg; cmd appops set $pkg RUN_ANY_IN_BACKGROUND allow")
+            DLog.i("Battery allowlist: ${out.trim()}")
+        } catch (t: Throwable) {
+            DLog.w("Could not allow background: ${t.message}")
         }
     }
 
