@@ -2,13 +2,18 @@
 agp = "9.4.1"
 kotlin = "2.4.21"
 coreKtx = "1.19.1"
-appcompat = "1.8.0"
+compose = "1.12.1"
+material3 = "1.4.0"
+activityCompose = "1.13.0"
 leakcanary = "2.14"
 junit = "4.13.2"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
-androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui", version.ref = "compose" }
+androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation", version.ref = "compose" }
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "material3" }
 leakcanary = { group = "com.squareup.leakcanary", name = "leakcanary-android", version.ref = "leakcanary" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 
@@ -16,3 +21,5 @@ junit = { group = "junit", name = "junit", version.ref = "junit" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 # AGP 9 has Kotlin built in; this plugin only puts the right KGP version on the classpath (same as FuseHide).
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+# Compose compiler plugin must match the Kotlin version.
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

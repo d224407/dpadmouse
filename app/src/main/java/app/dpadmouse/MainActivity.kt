@@ -1,94 +1,105 @@
 package app.dpadmouse
 
-import android.database.ContentObserver
-import android.os.Handler
-import android.os.Looper
-import android.provider.Settings
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.DialogInterface
-import android.content.res.ColorStateList
-import android.graphics.Color
+import android.database.ContentObserver
 import android.os.Bundle
-import android.text.InputType
-import android.text.SpannableStringBuilder
-import android.text.Spanned
-import android.text.style.ForegroundColorSpan
-import android.view.Gravity
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import android.view.KeyEvent
-import android.view.View
-import android.view.ViewGroup
-import android.view.WindowManager
-import android.view.inputmethod.EditorInfo
-import android.widget.EditText
-import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
 import android.widget.Toast
-import androidx.activity.OnBackPressedCallback
-import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.unit.dp
 import app.dpadmouse.service.ScanMap
-import app.dpadmouse.ui.M3Switch
-import app.dpadmouse.ui.TvSlider
-import app.dpadmouse.ui.Ui
+import app.dpadmouse.ui.DpadTheme
+import app.dpadmouse.ui.InputDialog
+import app.dpadmouse.ui.KeySlotUi
+import app.dpadmouse.ui.KeysScreen
+import app.dpadmouse.ui.LanguageDialog
+import app.dpadmouse.ui.LearnDialog
+import app.dpadmouse.ui.LogLine
+import app.dpadmouse.ui.LogScreen
+import app.dpadmouse.ui.MainActions
+import app.dpadmouse.ui.MainScreen
+import app.dpadmouse.ui.MainState
+import app.dpadmouse.ui.WhitelistDialog
 import kotlin.reflect.KMutableProperty0
+import androidx.compose.ui.input.key.KeyEvent as ComposeKeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.type
 
 /**
- * Android TV UI. Dark only, designed for D-pad navigation: every control is
- * focusable with a visible focus state, text is sized for a 10-foot view, and
- * content stays inside the overscan-safe margins. Text entry (address/port)
- * happens in a dialog instead of inline fields so the D-pad never gets trapped
- * inside an EditText.
+ * Android TV UI in Jetpack Compose (Material 3 Expressive, dark only), designed for D-pad use.
+ * Content stays inside the overscan-safe margins. Text entry (address/port) happens in a dialog.
+ * Plain MouseHub/Prefs values are re-read whenever [rev] changes (see [render]).
  */
-class MainActivity : AppCompatActivity() {
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+class MainActivity : ComponentActivity() {
 
-    private lateinit var ui: Ui
     private val prefs get() = MouseHub.prefs
 
     private enum class Page { MAIN, KEYS, LOG }
 
-    private var page = Page.MAIN
-    /** The row that opened the current sub-page; gets focus back when returning. */
-    private var returnFocus: View? = null
-
-    private lateinit var mainPage: View
-    private lateinit var keysPage: View
-    private var logPage: View? = null
-
-    // --- main page
-    private lateinit var subtitle: TextView
-    private lateinit var masterRow: Ui.Row
-    private lateinit var masterSwitch: M3Switch
-    private lateinit var statusRow: Ui.Row
-    private lateinit var a11yRow: Ui.Row
-    private lateinit var hostChip: TextView
-    private lateinit var portChip: TextView
-    private lateinit var sensRow: Ui.Row
-    private lateinit var sensSlider: TvSlider
-    private lateinit var keysRow: Ui.Row
-    private lateinit var grabSwitch: M3Switch
-    private lateinit var grabRow: Ui.Row
-    private lateinit var whitelistRow: Ui.Row
-    private lateinit var updateGroup: View
-    private lateinit var updateRow: Ui.Row
-    private var storageRow: Ui.Row? = null
-    private var openLogRow: Ui.Row? = null
-
-    // --- "Map keys" page
-    private val keySlots = mutableListOf<Triple<Slot, TextView, Ui.Row>>()
-
-    // --- log page (debug only)
-    private var logText: TextView? = null
-    private var logScroll: ScrollView? = null
-    private var logFilter: Char? = null
-    private val filterChips = LinkedHashMap<Char?, TextView>()
-
     private class Slot(val title: String, val desc: String, val prop: KMutableProperty0<Int>)
+
+    private sealed interface Dlg {
+        data object Language : Dlg
+        class Input(val title: String, val initial: String, val numeric: Boolean, val onOk: (String) -> Unit) : Dlg
+        class Learn(val slot: Slot) : Dlg
+        data object Whitelist : Dlg
+        data object WhitelistLearn : Dlg
+    }
+
+    /** Bumped whenever MouseHub/Prefs change; composables read it to refresh. */
+    private var rev by mutableIntStateOf(0)
+    private var page by mutableStateOf(Page.MAIN)
+    private var dialog by mutableStateOf<Dlg?>(null)
+    private var logFilter by mutableStateOf<Char?>(null)
+
+    private val masterFocus = FocusRequester()
+    private val keysFocus = FocusRequester()
+    private val logFocus = FocusRequester()
+    private val keysFirstFocus = FocusRequester()
+    private val logPaneFocus = FocusRequester()
+    /** The row that opened the current sub-page; gets focus back when returning. */
+    private var returnFocus: FocusRequester? = null
+
+    private val slots by lazy {
+        listOf(
+            Slot(Strings.slotToggleTitle, Strings.slotToggleDesc, prefs::toggleKey),
+            Slot(Strings.slotLeftClickTitle, Strings.slotLeftClickDesc, prefs::clickKey),
+            Slot(Strings.slotRightClickTitle, Strings.slotRightClickDesc, prefs::rightClickKey),
+            Slot(Strings.slotScrollUpTitle, Strings.slotScrollUpDesc, prefs::scrollUpKey),
+            Slot(Strings.slotScrollDownTitle, Strings.slotScrollDownDesc, prefs::scrollDownKey),
+            Slot(Strings.slotScrollLeftTitle, Strings.slotScrollLeftDesc, prefs::scrollLeftKey),
+            Slot(Strings.slotScrollRightTitle, Strings.slotScrollRightDesc, prefs::scrollRightKey)
+        )
+    }
 
     private val stateListener: () -> Unit = { render() }
 
@@ -99,36 +110,11 @@ class MainActivity : AppCompatActivity() {
             window?.decorView?.postDelayed({ render() }, 400)
         }
     }
-    private val backCallback = object : OnBackPressedCallback(false) {
-        override fun handleOnBackPressed() = showPage(Page.MAIN)
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Strings.lang = prefs.language
-        ui = Ui(this)
-
-        // Overscan-safe margins (Android TV guideline: 48dp sides, 27dp top/bottom).
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(ui.c(R.color.md_surface))
-            setPadding(ui.dp(48), ui.dp(27), ui.dp(48), ui.dp(27))
-            clipChildren = false
-        }
-        mainPage = buildMainPage()
-        keysPage = buildKeysPage().also { it.visibility = View.GONE }
-        root.addView(mainPage, matchParent())
-        root.addView(keysPage, matchParent())
-        if (DebugTools.ENABLED) {
-            val log = buildLogPage()
-            log.visibility = View.GONE
-            logPage = log
-            root.addView(log, matchParent())
-        }
-
-        setContentView(root)
-        onBackPressedDispatcher.addCallback(this, backCallback)
-        masterRow.post { masterRow.requestFocus() }
-
+        setContent { DpadTheme { Root() } }
         if (DebugTools.ENABLED) DebugTools.requestStorageAccess(this)
     }
 
@@ -138,12 +124,10 @@ class MainActivity : AppCompatActivity() {
         contentResolver.registerContentObserver(
             Settings.Secure.getUriFor(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES), false, a11ySettingObserver
         )
-        if (DebugTools.ENABLED) DLog.listener = { runOnUiThread { renderLog() } }
+        if (DebugTools.ENABLED) DLog.listener = { runOnUiThread { render() } }
         render()
-        if (DebugTools.ENABLED) renderLog()
         Updater.check(prefs) { if (!isFinishing && !isDestroyed) render() }
     }
-
 
     override fun onStop() {
         MouseHub.removeListener(stateListener)
@@ -152,185 +136,283 @@ class MainActivity : AppCompatActivity() {
         super.onStop()
     }
 
-    // ================================================================== pages
+    private fun render() {
+        rev++
+    }
+
+    // ================================================================== root
+
+    @Composable
+    private fun Root() {
+        val state = mainState()
+        val mainScroll = rememberScrollState()
+        val keysScroll = rememberScrollState()
+        val fade = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+        val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
+
+        BackHandler(enabled = page != Page.MAIN) { showPage(Page.MAIN) }
+
+        LaunchedEffect(page) {
+            withFrameNanos { }
+            withFrameNanos { }
+            val target = when (page) {
+                Page.MAIN -> returnFocus ?: masterFocus
+                Page.KEYS -> keysFirstFocus
+                Page.LOG -> logPaneFocus
+            }
+            runCatching { target.requestFocus() }
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ) {
+            // Overscan-safe margins (Android TV guideline: 48dp sides, 27dp top/bottom).
+            AnimatedContent(
+                targetState = page,
+                modifier = Modifier.padding(horizontal = 48.dp, vertical = 27.dp),
+                transitionSpec = {
+                    (fadeIn(animationSpec = fade) + scaleIn(initialScale = 0.96f, animationSpec = spatial)) togetherWith
+                        fadeOut(animationSpec = fade)
+                },
+                label = "page"
+            ) { p ->
+                when (p) {
+                    Page.MAIN -> MainScreen(state, actions, mainScroll, masterFocus, keysFocus, logFocus)
+                    Page.KEYS -> KeysScreen(
+                        slots = slots.map { KeySlotUi(it.title, it.desc, keyName(it.prop.get())) },
+                        scroll = keysScroll,
+                        firstFocus = keysFirstFocus,
+                        onBack = { showPage(Page.MAIN) },
+                        onLearn = { dialog = Dlg.Learn(slots[it]) },
+                        onClear = { i ->
+                            val s = slots[i]
+                            s.prop.set(KeyEvent.KEYCODE_UNKNOWN)
+                            render()
+                            toast(Strings.keyClearedToast(s.title))
+                        },
+                        onReset = {
+                            prefs.resetKeys()
+                            MouseHub.refreshGrabKeys()
+                            render()
+                        }
+                    )
+                    Page.LOG -> LogScreen(
+                        lines = DLog.snapshot(logFilter).map { LogLine(it.level, it.text) },
+                        filter = logFilter,
+                        paneFocus = logPaneFocus,
+                        onBack = { showPage(Page.MAIN) },
+                        onSave = {
+                            DebugTools.saveLog(this@MainActivity, DLog.dumpAll()) { msg ->
+                                toast(if (msg.startsWith("Error")) msg else Strings.logSavedPrefix + msg)
+                            }
+                        },
+                        onCopy = {
+                            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("DpadMouse log", DLog.dumpAll()))
+                            toast(Strings.logCopiedToast)
+                        },
+                        onClear = { DLog.clear() },
+                        onFilter = { logFilter = it }
+                    )
+                }
+            }
+        }
+
+        Dialogs()
+    }
+
+    @Composable
+    private fun Dialogs() {
+        val d = dialog
+        // The accessibility service releases every key while learning so the dialog can receive it.
+        if (d is Dlg.Learn || d is Dlg.WhitelistLearn) {
+            DisposableEffect(d) {
+                MouseHub.learningKeys = true
+                onDispose {
+                    MouseHub.learningKeys = false
+                    MouseHub.refreshGrabKeys()
+                }
+            }
+        }
+        when (d) {
+            null -> Unit
+            Dlg.Language -> {
+                val langs = Strings.languages
+                LanguageDialog(
+                    title = Strings.languageRowName,
+                    names = langs.map { it.name },
+                    selected = langs.indexOfFirst { it.code == prefs.language }.coerceAtLeast(0),
+                    cancelText = Strings.cancelBtn,
+                    onPick = { i ->
+                        dialog = null
+                        val code = langs[i].code
+                        if (code != prefs.language) {
+                            prefs.language = code
+                            recreate()
+                        }
+                    },
+                    onDismiss = { dialog = null }
+                )
+            }
+            is Dlg.Input -> InputDialog(
+                title = d.title,
+                initial = d.initial,
+                numeric = d.numeric,
+                okText = Strings.okBtn,
+                cancelText = Strings.cancelBtn,
+                onOk = { v ->
+                    dialog = null
+                    d.onOk(v)
+                },
+                onDismiss = { dialog = null }
+            )
+            is Dlg.Learn -> LearnDialog(
+                title = d.slot.title,
+                message = Strings.learnMessage,
+                buttonText = Strings.dontUseKeyBtn,
+                onButton = {
+                    d.slot.prop.set(KeyEvent.KEYCODE_UNKNOWN)
+                    dialog = null
+                    render()
+                },
+                onDismiss = { dialog = null },
+                onKey = { ev -> learnKey(d.slot, ev) }
+            )
+            Dlg.Whitelist -> {
+                val entries = prefs.whitelist().entries.sortedBy { it.value }
+                WhitelistDialog(
+                    title = Strings.whitelistRowName,
+                    entries = entries.map { it.key to keyName(it.value) },
+                    addText = Strings.whitelistAddBtn,
+                    closeText = Strings.closeBtn,
+                    onRemove = { scan ->
+                        prefs.removeWhitelist(scan)
+                        MouseHub.refreshGrabKeys()
+                        render()
+                    },
+                    onAdd = { dialog = Dlg.WhitelistLearn },
+                    onClose = { dialog = null }
+                )
+            }
+            Dlg.WhitelistLearn -> LearnDialog(
+                title = Strings.whitelistRowName,
+                message = Strings.learnMessage,
+                buttonText = Strings.cancelBtn,
+                onButton = { dialog = Dlg.Whitelist },
+                onDismiss = { dialog = Dlg.Whitelist },
+                onKey = { ev ->
+                    if (ev.type == KeyEventType.KeyDown && ev.nativeKeyEvent.repeatCount == 0) {
+                        prefs.addWhitelist(ev.nativeKeyEvent.scanCode, ev.nativeKeyEvent.keyCode)
+                        dialog = Dlg.Whitelist
+                        render()
+                    }
+                }
+            )
+        }
+    }
+
+    // ================================================================== state + actions
+
+    private fun mainState(): MainState {
+        rev // subscribe: recompose when MouseHub/Prefs change
+        val st = MouseHub.state
+        val on = MouseHub.mouseModeOn
+        val shell = when (st) {
+            MouseHub.State.DISCONNECTED -> Strings.statusDisconnected
+            MouseHub.State.CONNECTING -> Strings.statusConnecting
+            MouseHub.State.CONNECTED -> Strings.statusConnected
+        }
+        val rel = Updater.pending(prefs)
+        return MainState(
+            on = on,
+            connecting = st == MouseHub.State.CONNECTING,
+            masterDesc = when {
+                on -> Strings.masterDescOn
+                st == MouseHub.State.CONNECTED -> Strings.masterDescConnectedOff
+                st == MouseHub.State.CONNECTING -> Strings.masterDescConnecting
+                else -> Strings.masterDescDefault
+            },
+            subtitle = if (on) Strings.subtitleOn else Strings.subtitleOff,
+            statusDesc = shell + (MouseHub.lastError?.let { Strings.errorSuffix(it) } ?: ""),
+            host = prefs.host,
+            port = prefs.port.toString(),
+            sensitivity = prefs.sensitivity,
+            sensDesc = Strings.sensitivityDesc(prefs.sensitivity),
+            toggleDesc = Strings.toggleDesc(keyName(prefs.toggleKey)),
+            whitelistDesc = Strings.whitelistDesc(prefs.whitelist().size),
+            grabOn = prefs.grabOnly,
+            grabDesc = when {
+                !prefs.grabOnly -> Strings.grabOff
+                MouseHub.grab != null -> Strings.grabRunning
+                else -> Strings.grabNotRunning
+            },
+            a11yDesc = when {
+                prefs.grabOnly -> Strings.a11yNotUsed
+                MouseHub.serviceActive() -> Strings.a11yRunning
+                else -> Strings.a11yNotEnabled
+            },
+            updateDesc = rel?.let { Strings.updateMessage(it.version) },
+            storageDesc = if (DebugTools.ENABLED) {
+                if (DebugTools.hasStorageAccess(this)) Strings.storageGranted else Strings.storageNotGranted
+            } else null
+        )
+    }
+
+    private val actions by lazy {
+        MainActions(
+            onMaster = ::onMasterClick,
+            onLanguage = { dialog = Dlg.Language },
+            onUpdate = {
+                Updater.pending(prefs)?.let { rel ->
+                    toast(Strings.updateDownloading)
+                    Updater.install(this, rel) { toast(Strings.updateFailed(it)) }
+                }
+            },
+            onHost = {
+                dialog = Dlg.Input(Strings.addressRowName, prefs.host, numeric = false) { v ->
+                    prefs.host = v.ifEmpty { "127.0.0.1" }
+                    render()
+                }
+            },
+            onPort = {
+                dialog = Dlg.Input(Strings.portRowName, prefs.port.toString(), numeric = true) { v ->
+                    val p = v.toIntOrNull()
+                    if (p != null && p in 1..65535) {
+                        prefs.port = p
+                        render()
+                    } else {
+                        toast(Strings.invalidPortToast)
+                    }
+                }
+            },
+            onConnect = { MouseHub.connect() },
+            onDisconnect = { MouseHub.disconnect() },
+            onSensSet = { prefs.sensitivity = it; render() },
+            onSensStep = { prefs.sensitivity = prefs.sensitivity + it; render() },
+            onKeys = { openPage(Page.KEYS, keysFocus) },
+            onWhitelist = { dialog = Dlg.Whitelist },
+            onGrab = { MouseHub.setGrabOnly(!prefs.grabOnly) },
+            onA11y = ::retryAccessibility,
+            onOpenLog = { openPage(Page.LOG, logFocus) },
+            onNudgeRight = { MouseHub.engine?.nudge(120, 0) ?: toast(Strings.notConnectedToast) },
+            onNudgeDown = { MouseHub.engine?.nudge(0, 120) ?: toast(Strings.notConnectedToast) },
+            onTestClick = { MouseHub.engine?.click() ?: toast(Strings.notConnectedToast) },
+            onDiagnose = ::diagnose,
+            onStorage = { DebugTools.requestStorageAccess(this) }
+        )
+    }
+
+    // ================================================================== logic
 
     private fun showPage(p: Page) {
-        val previous = page
         page = p
-        mainPage.visibility = if (p == Page.MAIN) View.VISIBLE else View.GONE
-        keysPage.visibility = if (p == Page.KEYS) View.VISIBLE else View.GONE
-        logPage?.visibility = if (p == Page.LOG) View.VISIBLE else View.GONE
-        backCallback.isEnabled = p != Page.MAIN
-        when (p) {
-            Page.MAIN -> (if (previous != Page.MAIN) returnFocus else null)?.requestFocus() ?: masterRow.requestFocus()
-            Page.KEYS -> keySlots.first().third.requestFocus()
-            Page.LOG -> {
-                renderLog()
-                logScroll?.requestFocus()
-            }
-        }
     }
 
-    private fun openPage(p: Page, from: View) {
+    private fun openPage(p: Page, from: FocusRequester) {
         returnFocus = from
         showPage(p)
-    }
-
-    // ================================================================== main page
-
-    private fun buildMainPage(): View {
-        // --- header: title on the left, language selector in the top-right corner.
-        // It is the first item of the scrolling content, so it scrolls away with the list.
-        val titleCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        titleCol.addView(ui.label(Strings.appTitle, 38f, R.color.md_on_surface, bold = true).apply {
-            setPadding(ui.dp(8), 0, ui.dp(8), 0)
-        })
-        subtitle = ui.label("", 17f, R.color.md_on_surface_variant).apply {
-            setPadding(ui.dp(8), ui.dp(2), ui.dp(8), 0)
-        }
-        titleCol.addView(subtitle)
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            clipChildren = false
-        }
-        header.addView(titleCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        header.addView(
-            ui.pill(Strings.languageButtonLabel) { showLanguageDialog() },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        )
-
-        // --- content (scrolls; the focused row is scrolled into view automatically)
-        val col = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            clipChildren = false
-            // Room for the focus scale-up so focused rows are never clipped at the sides.
-            setPadding(ui.dp(16), 0, ui.dp(16), ui.dp(32))
-        }
-        col.addView(header, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-
-        // UPDATE (only visible while a newer release is available)
-        updateRow = ui.Row(Strings.updateTitle, "", ui.chip(Strings.updateBtn)) {
-            Updater.pending(prefs)?.let { rel ->
-                toast(Strings.updateDownloading)
-                Updater.install(this, rel) { toast(Strings.updateFailed(it)) }
-            }
-        }
-        updateGroup = ui.group(updateRow).apply { visibility = View.GONE }
-        col.addView(updateGroup)
-
-        // VIRTUAL MOUSE
-        col.addView(ui.listTitle(Strings.sectionVirtualMouse))
-        masterSwitch = M3Switch(ui)
-        masterRow = ui.Row(Strings.mouseModeRow, "", masterSwitch) { onMasterClick() }
-        col.addView(ui.group(masterRow))
-
-        // LOCAL ADB
-        col.addView(ui.listTitle(Strings.sectionLocalAdb))
-        statusRow = ui.Row(Strings.statusRowName, "")
-        hostChip = ui.chip(prefs.host)
-        portChip = ui.chip(prefs.port.toString())
-        val hostRow = ui.Row(Strings.addressRowName, Strings.addressRowDesc, hostChip) {
-            showInputDialog(Strings.addressRowName, prefs.host, InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI) { v ->
-                prefs.host = v.ifEmpty { "127.0.0.1" }
-                render()
-            }
-        }
-        val portRow = ui.Row(Strings.portRowName, Strings.portRowDesc, portChip) {
-            showInputDialog(Strings.portRowName, prefs.port.toString(), InputType.TYPE_CLASS_NUMBER) { v ->
-                val p = v.toIntOrNull()
-                if (p != null && p in 1..65535) {
-                    prefs.port = p
-                    render()
-                } else {
-                    toast(Strings.invalidPortToast)
-                }
-            }
-        }
-        col.addView(ui.group(statusRow, hostRow, portRow))
-        col.addView(
-            ui.actionRow(
-                ui.pill(Strings.connectBtn, primary = true) { MouseHub.connect() },
-                ui.pill(Strings.disconnectBtn) { MouseHub.disconnect() }
-            )
-        )
-
-        // CONTROL
-        col.addView(ui.listTitle(Strings.sectionControl))
-        sensSlider = TvSlider(ui, 1, 100).apply {
-            value = prefs.sensitivity
-            onChange = { setSensitivity(it) }
-        }
-        sensRow = ui.Row(Strings.sensitivityRowName, Strings.sensitivityDesc(prefs.sensitivity), sensSlider, stacked = true)
-        sensRow.enableFocus()
-        // Left/Right on the focused row adjust the value; holding the key speeds it up.
-        sensRow.setOnKeyListener { _, keyCode, ev ->
-            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                if (ev.action == KeyEvent.ACTION_DOWN) {
-                    val step = when {
-                        ev.repeatCount < 8 -> 1
-                        ev.repeatCount < 25 -> 3
-                        else -> 6
-                    }
-                    setSensitivity(prefs.sensitivity + if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) step else -step)
-                }
-                true
-            } else {
-                false
-            }
-        }
-        val chevron = ImageView(this).apply {
-            setImageResource(R.drawable.ic_chevron)
-            imageTintList = ColorStateList.valueOf(ui.c(R.color.md_on_surface_variant))
-        }
-        keysRow = ui.Row(Strings.mapKeysRowName, "", chevron) { openPage(Page.KEYS, keysRow) }
-        grabSwitch = M3Switch(ui)
-        grabRow = ui.Row(Strings.grabOnlyRowName, "", grabSwitch) { MouseHub.setGrabOnly(!prefs.grabOnly) }
-        whitelistRow = ui.Row(Strings.whitelistRowName, "") { showWhitelistDialog() }
-        col.addView(ui.group(sensRow, keysRow, whitelistRow))
-
-        // DIAGNOSTIC: the two key-capture methods. EVIOCGRAB is chosen here; the accessibility service is
-        // enabled automatically with mouse mode when EVIOCGRAB is off.
-        col.addView(ui.listTitle(Strings.sectionDiagnostic))
-        // Selecting it retries enabling right away (recovery path now that there is no button).
-        a11yRow = ui.Row(Strings.a11yServiceRowName, "") { retryAccessibility() }
-        col.addView(ui.group(grabRow, a11yRow))
-
-        // DEBUG (debug build only)
-        if (DebugTools.ENABLED) {
-            col.addView(ui.listTitle(Strings.sectionDebug))
-            val storage = ui.Row(Strings.storageRowName(DebugTools.DIR), "") { DebugTools.requestStorageAccess(this) }
-            storageRow = storage
-            val logRow = ui.Row(Strings.openLogRowName, Strings.openLogRowDesc) { openPage(Page.LOG, openLogRow!!) }
-            openLogRow = logRow
-            col.addView(
-                ui.group(
-                    logRow,
-                    ui.Row(Strings.nudgeRightRowName, Strings.nudgeRightRowDesc) {
-                        val e = MouseHub.engine
-                        if (e == null) toast(Strings.notConnectedToast) else e.nudge(120, 0)
-                    },
-                    ui.Row(Strings.nudgeDownRowName, Strings.nudgeDownRowDesc) {
-                        val e = MouseHub.engine
-                        if (e == null) toast(Strings.notConnectedToast) else e.nudge(0, 120)
-                    },
-                    ui.Row(Strings.testClickRowName, Strings.testClickRowDesc) {
-                        val e = MouseHub.engine
-                        if (e == null) toast(Strings.notConnectedToast) else e.click()
-                    },
-                    ui.Row(Strings.diagnoseRowName, Strings.diagnoseRowDesc) { diagnose() },
-                    storage
-                )
-            )
-        }
-
-        // Note: the ScrollView must keep clipChildren = true (default) so scrolled-out rows are
-        // cut at its edges instead of drawing over the screen margins.
-        return ScrollView(this).apply {
-            clipToPadding = false
-            isSmoothScrollingEnabled = true
-            addView(col)
-        }
     }
 
     private fun retryAccessibility() {
@@ -339,13 +421,6 @@ class MainActivity : AppCompatActivity() {
         MouseHub.enableAccessibilityService { r ->
             r.onFailure { toast("${Strings.diagnoseErrorPrefix}${it.message}") }
         }
-    }
-
-    private fun setSensitivity(v: Int) {
-        prefs.sensitivity = v
-        val n = prefs.sensitivity
-        sensSlider.value = n
-        sensRow.setDesc(Strings.sensitivityDesc(n))
     }
 
     private fun onMasterClick() {
@@ -371,367 +446,25 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun render() {
-        val st = MouseHub.state
-        val on = MouseHub.mouseModeOn
-        masterSwitch.checked = on
-        masterRow.setActive(on)
-        masterRow.setDesc(
-            when {
-                on -> Strings.masterDescOn
-                st == MouseHub.State.CONNECTED -> Strings.masterDescConnectedOff
-                st == MouseHub.State.CONNECTING -> Strings.masterDescConnecting
-                else -> Strings.masterDescDefault
-            }
-        )
-        val shell = when (st) {
-            MouseHub.State.DISCONNECTED -> Strings.statusDisconnected
-            MouseHub.State.CONNECTING -> Strings.statusConnecting
-            MouseHub.State.CONNECTED -> Strings.statusConnected
+    /** Stores the pressed key in [slot]. Called for every key except Back while the learn dialog is open. */
+    private fun learnKey(slot: Slot, ev: ComposeKeyEvent) {
+        val n = ev.nativeKeyEvent
+        if (ev.type != KeyEventType.KeyDown || n.repeatCount != 0) return
+        if (prefs.grabOnly && ScanMap.isProtected(prefs, n.scanCode, n.keyCode)) {
+            toast(Strings.keyProtectedToast(keyName(n.keyCode)))
+            return
         }
-        statusRow.setDesc(shell + (MouseHub.lastError?.let { Strings.errorSuffix(it) } ?: ""))
-        grabRow.setDesc(
-            when {
-                !prefs.grabOnly -> Strings.grabOff
-                MouseHub.grab != null -> Strings.grabRunning
-                else -> Strings.grabNotRunning
-            }
-        )
-        a11yRow.setDesc(
-            when {
-                prefs.grabOnly -> Strings.a11yNotUsed
-                MouseHub.serviceActive() -> Strings.a11yRunning
-                else -> Strings.a11yNotEnabled
-            }
-        )
-        grabSwitch.checked = prefs.grabOnly
-        val rel = Updater.pending(prefs)
-        updateGroup.visibility = if (rel != null) View.VISIBLE else View.GONE
-        if (rel != null) updateRow.setDesc(Strings.updateMessage(rel.version))
-        whitelistRow.setDesc(Strings.whitelistDesc(prefs.whitelist().size))
-        subtitle.text = if (on) Strings.subtitleOn else Strings.subtitleOff
-        hostChip.text = prefs.host
-        portChip.text = prefs.port.toString()
-        keysRow.setDesc(Strings.toggleDesc(keyName(prefs.toggleKey)))
-        storageRow?.setDesc(if (DebugTools.hasStorageAccess(this)) Strings.storageGranted else Strings.storageNotGranted)
-    }
-
-    // ================================================================== dialogs
-
-    /** Language is chosen from a list, not toggled back and forth. */
-    private fun showLanguageDialog() {
-        val langs = Strings.languages
-        val checked = langs.indexOfFirst { it.code == prefs.language }.coerceAtLeast(0)
-        AlertDialog.Builder(this)
-            .setTitle(Strings.languageRowName)
-            .setSingleChoiceItems(langs.map { it.name }.toTypedArray(), checked) { d, which ->
-                d.dismiss()
-                val code = langs[which].code
-                if (code != prefs.language) {
-                    prefs.language = code
-                    recreate()
-                }
-            }
-            .setNegativeButton(Strings.cancelBtn, null)
-            .show()
-    }
-
-    /** Text entry in a dialog, so the D-pad never gets trapped inside an inline EditText. */
-    private fun showInputDialog(title: String, initial: String, inputType: Int, onOk: (String) -> Unit) {
-        val input = EditText(this).apply {
-            setText(initial)
-            this.inputType = inputType
-            setSingleLine()
-            setSelectAllOnFocus(true)
-            setTextColor(ui.c(R.color.md_on_surface))
-            textSize = 22f
-            imeOptions = EditorInfo.IME_ACTION_DONE
-            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
-        }
-        val box = FrameLayout(this).apply {
-            setPadding(ui.dp(24), ui.dp(8), ui.dp(24), 0)
-            addView(input, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        }
-        val dlg = AlertDialog.Builder(this)
-            .setTitle(title)
-            .setView(box)
-            .setPositiveButton(Strings.okBtn) { _, _ -> onOk(input.text.toString().trim()) }
-            .setNegativeButton(Strings.cancelBtn, null)
-            .create()
-        input.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_DONE) {
-                dlg.getButton(DialogInterface.BUTTON_POSITIVE).performClick()
-                true
-            } else {
-                false
-            }
-        }
-        dlg.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
-        dlg.show()
-        input.requestFocus()
-    }
-
-    // ================================================================== "Map keys" page
-
-    private fun buildKeysPage(): View {
-        val col = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            clipChildren = false
-        }
-
-        col.addView(pageHeader(Strings.mapKeysTitle) { showPage(Page.MAIN) })
-
-        val slots = listOf(
-            Slot(Strings.slotToggleTitle, Strings.slotToggleDesc, prefs::toggleKey),
-            Slot(Strings.slotLeftClickTitle, Strings.slotLeftClickDesc, prefs::clickKey),
-            Slot(Strings.slotRightClickTitle, Strings.slotRightClickDesc, prefs::rightClickKey),
-            Slot(Strings.slotScrollUpTitle, Strings.slotScrollUpDesc, prefs::scrollUpKey),
-            Slot(Strings.slotScrollDownTitle, Strings.slotScrollDownDesc, prefs::scrollDownKey),
-            Slot(Strings.slotScrollLeftTitle, Strings.slotScrollLeftDesc, prefs::scrollLeftKey),
-            Slot(Strings.slotScrollRightTitle, Strings.slotScrollRightDesc, prefs::scrollRightKey)
-        )
-        keySlots.clear()
-        val rows = slots.map { slot ->
-            val chip = ui.chip(keyName(slot.prop.get()))
-            val row = ui.Row(slot.title, slot.desc, chip) {
-                learn(slot) {
-                    chip.text = keyName(slot.prop.get())
-                    render()
-                }
-            }
-            // Hold OK on a row to clear its key (the learn dialog captures every other key).
-            row.setOnLongPress {
-                slot.prop.set(KeyEvent.KEYCODE_UNKNOWN)
-                chip.text = keyName(slot.prop.get())
-                render()
-                toast(Strings.keyClearedToast(slot.title))
-            }
-            keySlots.add(Triple(slot, chip, row))
-            row
-        }
-
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            clipChildren = false
-            setPadding(ui.dp(16), ui.dp(8), ui.dp(16), ui.dp(32))
-            addView(ui.group(*rows.toTypedArray()))
-            addView(
-                ui.label(Strings.keysPageNote, 16f, R.color.md_on_surface_variant)
-                    .apply { setPadding(ui.dp(8), ui.dp(16), ui.dp(8), 0) }
-            )
-            addView(ui.actionRow(ui.pill(Strings.resetDefaultsBtn) {
-                prefs.resetKeys()
-                MouseHub.refreshGrabKeys()
-                keySlots.forEach { (slot, chip, _) -> chip.text = keyName(slot.prop.get()) }
-                render()
-            }))
-        }
-        col.addView(
-            ScrollView(this).apply {
-                clipToPadding = false
-                isSmoothScrollingEnabled = true
-                addView(content)
-            },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
-        )
-        return col
-    }
-
-    /** Sub-page header: a back button (also reachable by pointer) and a title, plus optional trailing views. */
-    private fun pageHeader(title: String, vararg trailing: View, onBack: () -> Unit): LinearLayout {
-        val header = LinearLayout(this).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            clipChildren = false
-            setPadding(ui.dp(8), 0, ui.dp(8), ui.dp(12))
-        }
-        header.addView(ui.iconButton(R.drawable.ic_back, onBack))
-        header.addView(
-            ui.label(title, 30f, R.color.md_on_surface, bold = true),
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = ui.dp(20) }
-        )
-        trailing.forEachIndexed { i, v ->
-            header.addView(v, LinearLayout.LayoutParams(ui.dp(56), ui.dp(56)).apply {
-                marginStart = if (i == 0) ui.dp(12) else ui.dp(10)
-            })
-        }
-        return header
-    }
-
-    /** Listens for a key on the controller and stores it in [slot]. Back cancels. */
-    private fun learn(slot: Slot, after: () -> Unit) {
-        MouseHub.learningKeys = true // the accessibility service releases every key so the dialog can receive it
-        val dlg = AlertDialog.Builder(this)
-            .setTitle(slot.title)
-            .setMessage(Strings.learnMessage)
-            .setNegativeButton(Strings.dontUseKeyBtn) { _, _ ->
-                slot.prop.set(KeyEvent.KEYCODE_UNKNOWN)
-                after()
-            }
-            .create()
-        dlg.setOnDismissListener {
-            MouseHub.learningKeys = false
-            MouseHub.refreshGrabKeys()
-        }
-        dlg.setOnKeyListener { d, keyCode, ev ->
-            if (keyCode == KeyEvent.KEYCODE_BACK) {
-                false
-            } else {
-                if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) {
-                    if (prefs.grabOnly && ScanMap.isProtected(prefs, ev.scanCode, keyCode)) {
-                        toast(Strings.keyProtectedToast(keyName(keyCode)))
-                    } else {
-                        slot.prop.set(keyCode)
-                        prefs.learnScan(ev.scanCode, keyCode)
-                        // The remote this key came from is the only device EVIOCGRAB may grab.
-                        ev.device?.name?.removePrefix("dpadmouse-")?.let { prefs.addGrabDevice(it) }
-                        after()
-                        d.dismiss()
-                    }
-                }
-                true
-            }
-        }
-        dlg.show()
-    }
-
-    /** Lists the user's whitelisted keys (select one to remove it) and lets a new one be added. */
-    private fun showWhitelistDialog() {
-        val entries = prefs.whitelist().entries.sortedBy { it.value }
-        AlertDialog.Builder(this)
-            .setTitle(Strings.whitelistRowName)
-            .setItems(entries.map { keyName(it.value) }.toTypedArray()) { _, i ->
-                prefs.removeWhitelist(entries[i].key)
-                MouseHub.refreshGrabKeys()
-                render()
-                showWhitelistDialog()
-            }
-            .setPositiveButton(Strings.whitelistAddBtn) { _, _ -> learnWhitelistKey() }
-            .setNegativeButton(Strings.closeBtn, null)
-            .show()
-    }
-
-    private fun learnWhitelistKey() {
-        MouseHub.learningKeys = true
-        val dlg = AlertDialog.Builder(this)
-            .setTitle(Strings.whitelistRowName)
-            .setMessage(Strings.learnMessage)
-            .setNegativeButton(Strings.cancelBtn, null)
-            .create()
-        dlg.setOnDismissListener {
-            MouseHub.learningKeys = false
-            MouseHub.refreshGrabKeys()
-            render()
-            showWhitelistDialog()
-        }
-        dlg.setOnKeyListener { d, keyCode, ev ->
-            if (keyCode == KeyEvent.KEYCODE_BACK) {
-                false
-            } else {
-                if (ev.action == KeyEvent.ACTION_DOWN && ev.repeatCount == 0) {
-                    prefs.addWhitelist(ev.scanCode, keyCode)
-                    d.dismiss()
-                }
-                true
-            }
-        }
-        dlg.show()
+        slot.prop.set(n.keyCode)
+        prefs.learnScan(n.scanCode, n.keyCode)
+        // The remote this key came from is the only device EVIOCGRAB may grab.
+        n.device?.name?.removePrefix("dpadmouse-")?.let { prefs.addGrabDevice(it) }
+        dialog = null
+        render()
     }
 
     private fun keyName(code: Int): String =
         if (code == KeyEvent.KEYCODE_UNKNOWN) Strings.notUsedKeyName
         else KeyEvent.keyCodeToString(code).removePrefix("KEYCODE_")
-
-    // ================================================================== log page (debug)
-
-    private fun buildLogPage(): View {
-        val col = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            clipChildren = false
-        }
-
-        val save = ui.iconButton(R.drawable.ic_save) {
-            DebugTools.saveLog(this, DLog.dumpAll()) { msg ->
-                toast(if (msg.startsWith("Error")) msg else Strings.logSavedPrefix + msg)
-            }
-        }
-        val copy = ui.iconButton(R.drawable.ic_copy) {
-            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            cm.setPrimaryClip(ClipData.newPlainText("DpadMouse log", DLog.dumpAll()))
-            toast(Strings.logCopiedToast)
-        }
-        val clear = ui.iconButton(R.drawable.ic_delete) { DLog.clear() }
-        col.addView(pageHeader(Strings.logTitle, save, copy, clear) { showPage(Page.MAIN) })
-
-        val chips = LinearLayout(this).apply {
-            clipChildren = false
-            setPadding(ui.dp(12), ui.dp(4), ui.dp(12), ui.dp(14))
-        }
-        listOf<Pair<Char?, String>>(
-            null to "ALL", 'D' to "DEBUG", 'I' to "INFO", 'W' to "WARN", 'E' to "ERROR"
-        ).forEachIndexed { i, (level, text) ->
-            val chip = ui.filterChip(text) { setLogFilter(level) }
-            filterChips[level] = chip
-            chips.addView(chip, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { if (i > 0) marginStart = ui.dp(12) })
-        }
-        col.addView(HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            clipToPadding = false
-            addView(chips)
-        })
-        setLogFilter(null)
-
-        val text = ui.label("", 14f, R.color.md_on_surface_variant, mono = true).apply {
-            setLineSpacing(0f, 1.3f)
-            setPadding(ui.dp(20), ui.dp(16), ui.dp(20), ui.dp(16))
-        }
-        logText = text
-        val scroll = ScrollView(this).apply {
-            background = ui.pillBg(R.color.md_surface_container_high, 20)
-            ui.makeFocusable(this, 1f) // focus it, then scroll the log with the D-pad's Up/Down
-            addView(text)
-        }
-        logScroll = scroll
-        col.addView(scroll, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
-        ).apply { marginStart = ui.dp(12); marginEnd = ui.dp(12) })
-        return col
-    }
-
-    private fun setLogFilter(level: Char?) {
-        logFilter = level
-        filterChips.forEach { (lv, chip) ->
-            with(ui) { chip.setSelectedChip(lv == level, lv == 'E') }
-        }
-        renderLog()
-    }
-
-    private fun renderLog() {
-        val tv = logText ?: return
-        val sb = SpannableStringBuilder()
-        for (e in DLog.snapshot(logFilter)) {
-            val start = sb.length
-            sb.append(e.text).append('\n')
-            val color = when (e.level) {
-                'E' -> ui.c(R.color.log_error)
-                'W' -> ui.c(R.color.log_warn)
-                else -> Color.TRANSPARENT
-            }
-            if (color != Color.TRANSPARENT) {
-                sb.setSpan(ForegroundColorSpan(color), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            }
-        }
-        tv.text = sb
-        // Not using fullScroll(): it steals the controller's focus back to the log pane on every new line.
-        tv.post { logScroll?.scrollTo(0, tv.bottom) }
-    }
-
-    // ================================================================== utilities
-
-    private fun matchParent() = FrameLayout.LayoutParams(
-        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
-    )
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 }

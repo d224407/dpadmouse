@@ -2,6 +2,7 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application) // AGP 9: Kotlin is built in, no kotlin-android plugin needed
+    alias(libs.plugins.kotlin.compose)
 }
 
 // --- Release signing: read from keystore.properties if present -------------------------------
@@ -28,7 +29,7 @@ android {
     }
 
     buildFeatures {
-        viewBinding = true
+        compose = true
         buildConfig = true   // BuildConfig.DEBUG ...
     }
 
@@ -100,7 +101,10 @@ android {
 
 dependencies {
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.compose.material3)
 
     // Debug only: automatic leak detection (self-installing, no code needed)
     debugImplementation(libs.leakcanary)
