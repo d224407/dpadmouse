@@ -14,7 +14,7 @@ val hasReleaseKeystore = keystoreProps.getProperty("storeFile") != null
 
 android {
     namespace = "app.dpadmouse"
-    compileSdk = 37
+    compileSdk { version = release(37) { minorApiLevel = 1 } }
 
     defaultConfig {
         applicationId = "app.dpadmouse"
