@@ -46,7 +46,6 @@ import app.dpadmouse.R
 private val NAV_KEYS = intArrayOf(AKeyEvent.KEYCODE_BACK, AKeyEvent.KEYCODE_DPAD_UP, AKeyEvent.KEYCODE_DPAD_DOWN, AKeyEvent.KEYCODE_DPAD_LEFT, AKeyEvent.KEYCODE_DPAD_RIGHT)
 
 // Keys the learn dialog never captures: Back closes it, arrows move focus to the buttons.
-private val NAV_KEYS = intArrayOf(AKeyEvent.KEYCODE_BACK, AKeyEvent.KEYCODE_DPAD_UP, AKeyEvent.KEYCODE_DPAD_DOWN, AKeyEvent.KEYCODE_DPAD_LEFT, AKeyEvent.KEYCODE_DPAD_RIGHT)
 
 private suspend fun FocusRequester.focusWhenReady() {
     withFrameNanos { }
