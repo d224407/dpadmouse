@@ -2,7 +2,7 @@
 agp = "9.4.1"
 kotlin = "2.4.21"
 coreKtx = "1.19.1"
-compose = "1.13.0-rc01"
+compose = "1.14.0-alpha01"
 material3 = "1.5.0-rc01"
 activityCompose = "1.13.0"
 leakcanary = "2.14"
